@@ -10,7 +10,8 @@
     "start": "node dist/index.mjs",
     "env:generate": "varlock codegen",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "seed": "tsx scripts/seed.ts"
   },
   "dependencies": {
     "@multi-tenant-ai-catalog/db": "workspace:*",

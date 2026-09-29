@@ -17,6 +17,7 @@
     "db:watch": "turbo run db:watch -F @multi-tenant-ai-catalog/db --",
     "db:stop": "turbo run db:stop -F @multi-tenant-ai-catalog/db --",
     "db:down": "turbo run db:down -F @multi-tenant-ai-catalog/db --",
+    "db:seed": "pnpm --filter server seed",
     "env:generate": "varlock codegen --path ./apps/web/ && varlock codegen --path ./apps/server/ && varlock codegen --path ./packages/db/",
     "postinstall": "varlock codegen --path ./apps/web/ && varlock codegen --path ./apps/server/ && varlock codegen --path ./packages/db/"
   },
