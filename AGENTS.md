@@ -15,7 +15,7 @@ Multi-tenant SaaS where companies manage a product catalog and an AI agent answe
 - Install: `pnpm install`
 - Database: `pnpm db:start` (MongoDB)
 - Dev (web + server): `pnpm dev`
-- Seed: `pnpm --filter server seed`
+- Seed: `pnpm db:seed`
 - Types: `pnpm check-types`
 
 ## Repository map

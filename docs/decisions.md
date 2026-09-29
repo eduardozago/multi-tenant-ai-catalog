@@ -28,7 +28,7 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Em produção: contrato OpenAPI com geração de client, ou pacote compartilhado de schemas zod.
 
 ## D-04: JWT implementado manualmente em vez de Better Auth
-- Status: aceita
+- Status: substituída por D-08 (entrega do token via cookie httpOnly; o restante segue válido)
 - Contexto: auth com roles é critério avaliado, e o tenant viaja no token.
 - Opções: Better Auth, Clerk, JWT próprio.
 - Decisão: JWT HS256 com `{ sub, companyId, role }`, middlewares `authenticate` e `authorize`, bcrypt para senhas.
@@ -61,3 +61,39 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Motivo: deixa o mecanismo visível e testável, e torna prompt injection incapaz de atravessar tenants.
 - Trade-offs: streaming e troca de provedor exigem mais código próprio.
 - Em produção: observabilidade de tokens, custo e latência por tenant; limites de uso por plano; cache de respostas frequentes.
+
+## D-08: JWT em cookie httpOnly em vez de header Authorization
+- Status: aceita (substitui D-04 quanto ao transporte do token)
+- Contexto: o JWT precisa chegar ao browser sem ficar exposto a JavaScript; em `localStorage` um XSS consegue exfiltrá-lo.
+- Opções: Bearer em `localStorage`, Bearer em memória com refresh, cookie httpOnly.
+- Decisão: cookie `access_token` (httpOnly, `SameSite=Lax`, `Secure` em produção, `path=/`, `maxAge` igual à expiração do JWT). O token nunca aparece no corpo da resposta. JWT HS256 com `algorithms` fixado na verificação; senhas com bcryptjs (custo 10, sem build nativo).
+- Motivo: JavaScript nunca toca o token. CSRF mitigado em camadas: `SameSite=Lax`, CORS restrito à origem do web com `credentials`, e POST/PUT/PATCH aceitam só `application/json` (obriga preflight em chamadas cross-origin). Em dev, web e server em portas diferentes de localhost são same-site, então Lax funciona. O web usa `fetch` com `credentials: 'include'`.
+- Trade-offs: logout só remove o cookie; um token copiado continua válido até expirar. Mudança de role só vale no próximo login. Rate limit por IP em memória (10/min em register e login).
+- Em produção: com web e API em domínios diferentes, usar proxy no mesmo domínio (preferível) ou `SameSite=None; Secure` com token CSRF. Access token curto + refresh rotativo, revogação por versão de token, rate limit com store compartilhado (Redis) e `trust proxy` configurado.
+
+## D-09: Escape hatch explícito no plugin `tenantScoped`
+- Status: aceita
+- Contexto: o plugin lança `TenantScopeError` em query sem `company_id`, mas o login busca por email antes de o tenant ser conhecido, e o seed limpa todos os tenants.
+- Opções: desativar o plugin globalmente em certos fluxos, usar o driver nativo sem Mongoose, opção por query.
+- Decisão: `.setOptions({ bypassTenantScope: true })`, aceito só com valor `true` literal, usado em exatamente dois lugares comentados: `UserRepository.findByEmailAcrossTenants` (login e checagem de email único no registro) e `scripts/seed.ts`. Auditável com `grep -rn bypassTenantScope`. Aggregate não tem bypass e exige `$match` em `company_id` como primeiro estágio.
+- Motivo: o contorno fica visível, pontual e testado; o padrão continua sendo falhar fechado. Só igualdade (string ou ObjectId) conta como filtro de tenant; operadores como `$ne` ou `$exists` são rejeitados. Além do filtro, o plugin confere o payload de escrita: `immutable` só cobre updates simples, então replace, upsert (`$set`/`$setOnInsert`), `$unset`, `overwriteImmutable` e pipeline updates que levariam o documento para outro tenant lançam `TenantScopeError`, e um replace sem `company_id` recebe o do filtro.
+- Trade-offs: o plugin cobre só o primeiro `$match` de aggregates; `$lookup`/`$unionWith` posteriores dependem do repository. `bulkWrite` e o driver nativo não passam pelo plugin.
+- Em produção: regra de lint ou CI que falha em novos usos de `bypassTenantScope` fora de uma allowlist.
+
+## D-10: Registro com compensação em vez de transação
+- Status: aceita
+- Contexto: `POST /auth/register` cria empresa e admin; transações no MongoDB exigem replica set, que o setup local (Docker standalone e mongodb-memory-server) não tem.
+- Opções: transação com replica set, compensação manual, criar o usuário antes da empresa.
+- Decisão: checa se o email está livre, gera o hash, cria a empresa, cria o usuário; se a criação do usuário falhar, apaga a empresa e relança o erro original. Email duplicado vira 409 `EMAIL_TAKEN`, inclusive na corrida entre dois registros (erro 11000 do índice único traduzido no repository).
+- Motivo: mantém o setup de um container só, sem perder consistência no caso comum.
+- Trade-offs: se o processo cair entre os dois inserts, ou a compensação falhar (logada), sobra uma empresa órfã sem usuários, inofensiva mas suja.
+- Em produção: replica set (Atlas já é) e `session.withTransaction`, ou job que limpa empresas sem usuários.
+
+## D-11: Env com varlock para carregar e zod para validar
+- Status: aceita
+- Contexto: o scaffold carrega env com varlock (`.env.schema` versionado no lugar de `.env.example`); a app precisa de config tipada, validada no boot e fácil de injetar em testes.
+- Opções: só varlock (`ENV` gerado), só zod + `--env-file`, varlock para carregar e zod para validar.
+- Decisão: `import "varlock/auto-load"` só no entry point e no seed; `src/config/env.ts` valida `process.env` com zod e exporta `env`, única fonte lida pela app. `JWT_EXPIRES_IN` ("8h") vira segundos no schema e alimenta tanto o `exp` do JWT quanto o `maxAge` do cookie. Nome `DATABASE_URL` mantido (compartilhado com `packages/db` e turbo).
+- Motivo: fail fast com mensagens claras; testes definem variáveis no `vitest.config.ts` sem depender de arquivo `.env`.
+- Trade-offs: variáveis declaradas em dois lugares (`.env.schema` e schema zod).
+- Em produção: segredos vindos do provedor (secret manager), mesma validação no boot.
