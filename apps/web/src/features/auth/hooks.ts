@@ -1,4 +1,5 @@
 import { type QueryClient, queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 
 import { type AuthUser, login, logout, me, register } from "./api";
 
@@ -48,4 +49,17 @@ export function useLogin() {
 export function useRegister() {
   const storeSession = useStoreSession();
   return useMutation({ mutationFn: register, onSuccess: storeSession });
+}
+
+export function useLogout() {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  return useMutation({
+    mutationFn: logout,
+    // Even if the request fails, the user asked to leave: drop local state anyway.
+    onSettled: async () => {
+      resetSession(queryClient);
+      await navigate({ to: "/login" });
+    },
+  });
 }

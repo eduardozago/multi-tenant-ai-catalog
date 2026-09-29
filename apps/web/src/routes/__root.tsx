@@ -1,9 +1,10 @@
 import { Toaster } from "@multi-tenant-ai-catalog/ui/components/sonner";
+import { TooltipProvider } from "@multi-tenant-ai-catalog/ui/components/tooltip";
 import type { QueryClient } from "@tanstack/react-query";
 import { HeadContent, Outlet, createRootRouteWithContext } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 
-import Header from "@/components/header";
+import { PRODUCT_NAME } from "@/components/brand";
 import { ThemeProvider } from "@/components/theme-provider";
 
 import "../index.css";
@@ -16,20 +17,13 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
   component: RootComponent,
   head: () => ({
     meta: [
-      {
-        title: "multi-tenant-ai-catalog",
-      },
+      { title: PRODUCT_NAME },
       {
         name: "description",
-        content: "multi-tenant-ai-catalog is a web application",
+        content: "Catálogo de produtos multiempresa com agente de IA que consulta dados reais.",
       },
     ],
-    links: [
-      {
-        rel: "icon",
-        href: "/favicon.ico",
-      },
-    ],
+    links: [{ rel: "icon", href: "/favicon.ico" }],
   }),
 });
 
@@ -43,10 +37,9 @@ function RootComponent() {
         disableTransitionOnChange
         storageKey="vite-ui-theme"
       >
-        <div className="grid grid-rows-[auto_1fr] h-svh">
-          <Header />
+        <TooltipProvider>
           <Outlet />
-        </div>
+        </TooltipProvider>
         <Toaster richColors />
       </ThemeProvider>
       <TanStackRouterDevtools position="bottom-left" />
