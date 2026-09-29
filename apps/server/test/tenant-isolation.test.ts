@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { ProductModel } from "../src/modules/products/product.model";
 import { UserModel } from "../src/modules/users/user.model";
 import { UserRepository } from "../src/modules/users/user.repository";
 import { TenantScopeError } from "../src/shared/errors";
@@ -203,5 +204,43 @@ describe("tenantScoped plugin", () => {
     await expect(
       UserModel.create({ name: "No tenant", email: "none@x.test", passwordHash: "x", role: "user" }),
     ).rejects.toThrow(/company_id/);
+  });
+});
+
+describe("tenantScoped plugin on products", () => {
+  let companyA: string;
+  let companyB: string;
+
+  beforeEach(async () => {
+    const adminA = await registerCompany(app, "a");
+    const adminB = await registerCompany(app, "b");
+    companyA = adminA.user.company.id;
+    companyB = adminB.user.company.id;
+    const product = (companyId: string, createdBy: string, category: string) => ({
+      company_id: companyId,
+      createdBy,
+      name: `Product ${category}`,
+      priceCents: 1000,
+      category,
+    });
+    await ProductModel.create([
+      product(companyA, adminA.user.id, "Brinquedos"),
+      product(companyA, adminA.user.id, "Rações"),
+      product(companyB, adminB.user.id, "Notebooks"),
+    ]);
+  });
+
+  it("throws on distinct without company_id", async () => {
+    await expect(ProductModel.distinct("category")).rejects.toBeInstanceOf(TenantScopeError);
+  });
+
+  it("throws on estimatedDocumentCount, which cannot be filtered by tenant", async () => {
+    await expect(ProductModel.estimatedDocumentCount()).rejects.toBeInstanceOf(TenantScopeError);
+  });
+
+  it("returns only the tenant's values from a scoped distinct", async () => {
+    const categories = await ProductModel.distinct("category", { company_id: companyA });
+    expect(categories.sort()).toEqual(["Brinquedos", "Rações"]);
+    expect(await ProductModel.distinct("category", { company_id: companyB })).toEqual(["Notebooks"]);
   });
 });

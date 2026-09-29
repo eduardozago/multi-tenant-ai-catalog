@@ -106,3 +106,21 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Motivo: uma fonte só, sem sincronizar estado manualmente; limpar o cache no logout impede que dados de um tenant apareçam para a próxima sessão no mesmo browser. O mapa evita `role === 'admin'` espalhado e torna o modelo de permissões visível ao avaliador.
 - Trade-offs: o mapa é duplicado do servidor e pode divergir; ele só molda a UI, quem garante é o servidor. Uma chamada leve a `/auth/me` por navegação. Contas demo no login (flag `VITE_SHOW_DEMO_ACCOUNTS`) expõem credenciais do seed, aceitável só em demo.
 - Em produção: permissões vindas do servidor no payload de `/auth/me` (fonte única), flag de contas demo desligada, e refresh token silencioso antes de mandar o usuário ao login.
+
+## D-13: Preço em centavos inteiros
+- Status: aceita
+- Contexto: produtos têm preço, e o agente de IA filtra e compara preços com dados reais.
+- Opções: `Number` com decimais, `Decimal128`, inteiro em centavos.
+- Decisão: `priceCents` inteiro `>= 0`, validado com zod na borda e no schema Mongoose (`Number.isInteger`). A formatação em reais fica no web.
+- Motivo: ponto flutuante não representa a maioria dos valores decimais (`0.1 + 0.2 !== 0.3`); inteiros somam, comparam e ordenam sem erro e serializam em JSON sem conversão, ao contrário de `Decimal128`.
+- Trade-offs: a API expõe centavos, e todo cliente (incluindo o agente) precisa converter para exibir. Uma só moeda (BRL).
+- Em produção: moeda por empresa (ISO 4217) junto do valor, se houver clientes em outros países.
+
+## D-14: Categoria como string livre no produto
+- Status: aceita
+- Contexto: produtos são filtrados por categoria, e o web e o agente precisam da lista de categorias do tenant.
+- Opções: coleção `categories` por tenant com referência, string livre no produto.
+- Decisão: `category` string (trim, 2 a 60 caracteres) no produto; a lista vem de `distinct("category", { company_id })`, coberta pelo índice `{ company_id, category }`. O texto é gravado como digitado, sem normalizar maiúsculas.
+- Motivo: sem CRUD extra nem consistência entre coleções; uma categoria deixa de existir sozinha quando seu último produto é removido.
+- Trade-offs: "Brinquedos" e "brinquedos" viram categorias diferentes; renomear uma categoria exige atualizar vários produtos; sem metadados (ordem, ícone).
+- Em produção: coleção de categorias por tenant com slug único, ou collation case-insensitive (`strength: 2`) no índice e no distinct.
