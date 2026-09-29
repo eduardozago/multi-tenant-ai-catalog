@@ -4,7 +4,8 @@ import ReactDOM from "react-dom/client";
 
 import { RouteError } from "./components/route-error";
 import Loader from "./components/loader";
-import { ApiError } from "./lib/api-client";
+import { resetSession } from "./features/auth/hooks";
+import { ApiError, setUnauthorizedHandler } from "./lib/api-client";
 import { routeTree } from "./routeTree.gen";
 
 const queryClient = new QueryClient({
@@ -34,6 +35,15 @@ declare module "@tanstack/react-router" {
     router: typeof router;
   }
 }
+
+// Session expired or cookie removed while using the app: drop all cached data
+// and send the user to /login, remembering where they were.
+setUnauthorizedHandler(() => {
+  const { pathname, href } = router.state.location;
+  resetSession(queryClient);
+  if (pathname === "/login" || pathname === "/register") return;
+  void router.navigate({ to: "/login", search: { redirect: href } });
+});
 
 const rootElement = document.getElementById("app");
 
