@@ -97,3 +97,12 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Motivo: fail fast com mensagens claras; testes definem variáveis no `vitest.config.ts` sem depender de arquivo `.env`.
 - Trade-offs: variáveis declaradas em dois lugares (`.env.schema` e schema zod).
 - Em produção: segredos vindos do provedor (secret manager), mesma validação no boot.
+
+## D-12: Sessão no web via cache do TanStack Query e mapa de permissões espelhado
+- Status: aceita
+- Contexto: o web precisa saber quem está logado e o que cada papel pode fazer sem nunca tocar no token (D-08), e reagir a sessão expirada em qualquer tela.
+- Opções: contexto React com estado próprio, store global (Zustand), query `['auth', 'me']` como única fonte.
+- Decisão: a query `['auth', 'me']` é a sessão (`null` = deslogado; `/auth/me` com 401 resolve `null`). Login e registro gravam o usuário retornado no cache; logout e qualquer 401 fora de login/registro/me limpam o cache inteiro e levam a `/login?redirect=<rota atual>` (só caminhos same-origin são aceitos). O guard do `_app` usa `ensureQueryData` com revalidação em segundo plano, então cada navegação reconfere a sessão sem bloquear a UI. Quem navega para o login é quem encerra a sessão (logout, handler de 401); o layout só navega quando a revalidação encontra a sessão vazia e nenhuma navegação está pendente, via efeito e não `<Navigate>` (que renavega a cada render e entra em loop durante a navegação do logout). Um mapa `papel → permissões` em `lib/permissions.tsx`, espelho dos `authorize(...)` do servidor, alimenta navegação, botões, guards de página (estado 403 em vez de redirect silencioso) e o painel "O que você pode fazer".
+- Motivo: uma fonte só, sem sincronizar estado manualmente; limpar o cache no logout impede que dados de um tenant apareçam para a próxima sessão no mesmo browser. O mapa evita `role === 'admin'` espalhado e torna o modelo de permissões visível ao avaliador.
+- Trade-offs: o mapa é duplicado do servidor e pode divergir; ele só molda a UI, quem garante é o servidor. Uma chamada leve a `/auth/me` por navegação. Contas demo no login (flag `VITE_SHOW_DEMO_ACCOUNTS`) expõem credenciais do seed, aceitável só em demo.
+- Em produção: permissões vindas do servidor no payload de `/auth/me` (fonte única), flag de contas demo desligada, e refresh token silencioso antes de mandar o usuário ao login.
