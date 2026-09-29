@@ -1,0 +1,24 @@
+{
+  "name": "@multi-tenant-ai-catalog/db",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "db:start": "docker compose up -d",
+    "db:watch": "docker compose up",
+    "db:stop": "docker compose stop",
+    "db:down": "docker compose down"
+  },
+  "dependencies": {
+    "mongoose": "^9.9.5",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@multi-tenant-ai-catalog/config": "workspace:*",
+    "typescript": "catalog:",
+    "varlock": "catalog:"
+  }
+}

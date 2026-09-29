@@ -1,0 +1,33 @@
+{
+  "name": "multi-tenant-ai-catalog",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "check-types": "turbo run check-types",
+    "dev:web": "turbo run dev -F web --",
+    "dev:server": "turbo run dev -F server --",
+    "db:start": "turbo run db:start -F @multi-tenant-ai-catalog/db --",
+    "db:watch": "turbo run db:watch -F @multi-tenant-ai-catalog/db --",
+    "db:stop": "turbo run db:stop -F @multi-tenant-ai-catalog/db --",
+    "db:down": "turbo run db:down -F @multi-tenant-ai-catalog/db --",
+    "env:generate": "varlock codegen --path ./apps/web/ && varlock codegen --path ./apps/server/ && varlock codegen --path ./packages/db/",
+    "postinstall": "varlock codegen --path ./apps/web/ && varlock codegen --path ./apps/server/ && varlock codegen --path ./packages/db/"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@multi-tenant-ai-catalog/config": "workspace:*",
+    "@types/node": "catalog:",
+    "turbo": "^2.10.12",
+    "typescript": "catalog:",
+    "varlock": "catalog:"
+  },
+  "packageManager": "pnpm@11.25.0"
+}
