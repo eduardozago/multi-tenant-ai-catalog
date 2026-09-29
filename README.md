@@ -38,6 +38,40 @@ pnpm run dev
 Open [http://localhost:3001](http://localhost:3001) in your browser to see the web application.
 The API is running at [http://localhost:3000](http://localhost:3000).
 
+## Autenticação
+
+O JWT (HS256, payload `{ sub, companyId, role }`) é entregue em um cookie httpOnly `access_token` e nunca aparece no corpo das respostas. O tenant de cada requisição vem só desse token. Detalhes e trade-offs em `docs/decisions.md` (D-08 a D-10).
+
+Configure em `apps/server/.env` (schema em `apps/server/.env.schema`): `DATABASE_URL`, `CORS_ORIGIN`, `JWT_SECRET` (mínimo 32 caracteres, ex.: `openssl rand -base64 48`) e, opcionalmente, `JWT_EXPIRES_IN` (padrão `8h`) e `PORT` (padrão `3000`).
+
+| Método | Rota | Acesso | Descrição |
+| --- | --- | --- | --- |
+| POST | `/auth/register` | público | Cria empresa + admin, define o cookie, 201 `{ user }` |
+| POST | `/auth/login` | público | Define o cookie, 200 `{ user }` |
+| POST | `/auth/logout` | público | Remove o cookie, 204 |
+| GET | `/auth/me` | autenticado | 200 `{ user }` |
+| GET | `/users` | admin | Usuários da própria empresa |
+| POST | `/users` | admin | Cria usuário na própria empresa |
+
+Roles: `admin` gerencia produtos e usuários; `user` consulta produtos e usa o chat. Register e login têm rate limit de 10 requisições/minuto por IP. POST/PUT/PATCH exigem `Content-Type: application/json` (proteção contra CSRF).
+
+Seed com duas empresas (`pnpm db:seed`): `admin@petfeliz.test`, `user@petfeliz.test`, `admin@volt.test`, `user@volt.test`, todos com senha `password123`.
+
+```bash
+# login: salva o cookie no cookie jar
+curl -i -c cookies.txt -X POST http://localhost:3000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@petfeliz.test","password":"password123"}'
+
+# rotas autenticadas: envia o cookie
+curl -b cookies.txt http://localhost:3000/auth/me
+curl -b cookies.txt http://localhost:3000/users
+
+# logout (também exige Content-Type JSON)
+curl -b cookies.txt -c cookies.txt -X POST http://localhost:3000/auth/logout \
+  -H 'Content-Type: application/json'
+```
+
 ## UI Customization
 
 React web apps in this stack share shadcn/ui primitives through `packages/ui`.
@@ -93,3 +127,5 @@ multi-tenant-ai-catalog/
 - `pnpm run dev:web`: Start only the web application
 - `pnpm run dev:server`: Start only the server
 - `pnpm run check-types`: Check TypeScript types across all apps
+- `pnpm run test`: Run the test suites (server: Vitest + Supertest + mongodb-memory-server)
+- `pnpm db:seed`: Reset the database with two demo companies

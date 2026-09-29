@@ -1,23 +1,14 @@
-import cors from "cors";
-import express from "express";
+// Must be the first import: loads .env files into process.env (validated against
+// .env.schema) before config/env.ts parses them.
+import "varlock/auto-load";
 
-import { ENV } from "./env.server";
+import { createDb } from "@multi-tenant-ai-catalog/db";
 
-const app = express();
+import { createApp } from "./app";
+import { env } from "./config/env";
 
-app.use(
-  cors({
-    origin: ENV.CORS_ORIGIN,
-    methods: ["GET", "POST", "OPTIONS"],
-  }),
-);
+await createDb(env);
 
-app.use(express.json());
-
-app.get("/", (_req, res) => {
-  res.status(200).send("OK");
-});
-
-app.listen(3000, () => {
-  console.log("Server is running on http://localhost:3000");
+createApp().listen(env.PORT, () => {
+  console.log(`Server is running on http://localhost:${env.PORT}`);
 });
