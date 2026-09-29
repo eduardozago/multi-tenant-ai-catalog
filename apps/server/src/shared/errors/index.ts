@@ -40,3 +40,15 @@ export class ConflictError extends AppError {
   }
 }
 
+/**
+ * Thrown by the tenantScoped plugin when a query on a tenant-owned collection
+ * has no `company_id` filter, or a write would put a document in another tenant.
+ * It is a programming error, not a client error, so it is intentionally not an
+ * AppError: the handler turns it into a generic 500.
+ */
+export class TenantScopeError extends Error {
+  constructor(model: string, operation: string, reason = "without a company_id filter") {
+    super(`Tenant scope violation: ${model}.${operation} ${reason}`);
+    this.name = "TenantScopeError";
+  }
+}
