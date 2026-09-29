@@ -13,14 +13,14 @@ import {
   useSidebar,
 } from "@multi-tenant-ai-catalog/ui/components/sidebar";
 import { Link, useMatchRoute } from "@tanstack/react-router";
-import { Building2, House, type LucideIcon, MessageSquare, Package } from "lucide-react";
+import { Building2, House, type LucideIcon, MessageSquare, Package, Users } from "lucide-react";
 
 import { UserMenu } from "@/components/user-menu";
 import type { AuthUser } from "@/features/auth/api";
 import { can, type Permission } from "@/lib/permissions";
 
 type NavItem = {
-  to: "/" | "/products" | "/chat";
+  to: "/" | "/products" | "/chat" | "/users";
   label: string;
   icon: LucideIcon;
   /** Omitted: visible to every authenticated user. */
@@ -31,6 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Início", icon: House },
   { to: "/products", label: "Produtos", icon: Package, permission: "products:read" },
   { to: "/chat", label: "Chat", icon: MessageSquare, permission: "chat:use" },
+  { to: "/users", label: "Usuários", icon: Users, permission: "users:manage" },
 ];
 
 export function AppSidebar({ user }: { user: AuthUser }) {
