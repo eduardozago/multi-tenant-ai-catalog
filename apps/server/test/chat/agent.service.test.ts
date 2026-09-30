@@ -1,11 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  type AgentEvent,
-  AgentIterationLimitError,
-  AgentService,
-  selectMentionedProducts,
-} from "../../src/modules/chat/agent.service";
+import { AgentService, selectMentionedProducts } from "../../src/modules/chat/agent.service";
+import { AgentIterationLimitError } from "../../src/modules/chat/chat.errors";
+import type { AgentEvent } from "../../src/modules/chat/chat.types";
 import { LLMUnavailableError } from "../../src/modules/chat/llm/errors";
 import type { Message } from "../../src/modules/chat/llm/types";
 import { createCatalogToolRegistry } from "../../src/modules/chat/tools/registry";

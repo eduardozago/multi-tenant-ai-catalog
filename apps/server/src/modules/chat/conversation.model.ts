@@ -2,7 +2,7 @@ import { model, Schema, type Types } from "mongoose";
 
 import { tenantScoped } from "../../shared/db/tenant-scoped.plugin";
 import type { ProductDto } from "../products/product.dto";
-import type { ToolCallSummary } from "./agent.service";
+import type { ToolCallSummary } from "./chat.types";
 
 export type StoredMessage = {
   role: "user" | "assistant";

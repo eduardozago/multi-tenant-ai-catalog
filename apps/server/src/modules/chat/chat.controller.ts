@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 
 import { getContext } from "../../shared/context";
 import { toErrorResponse } from "../../shared/middlewares/error-handler";
-import type { AgentEvent } from "./agent.service";
+import type { AgentEvent } from "./chat.types";
 import type { ConversationParams, SendMessageInput } from "./chat.schemas";
 import type { ChatService } from "./chat.service";
 import { openEventStream } from "./sse";

@@ -5,28 +5,8 @@ import type { LLMProvider, LLMRequest, LLMResponse, Message, TextBlock, ToolUseB
 import { buildSystemPrompt } from "./system-prompt";
 import type { ToolExecution, ToolRegistry } from "./tools/registry";
 import type { ToolContext } from "./tools/tool";
-
-/** The model kept requesting tools past the cap: 502 like any other upstream failure. */
-export class AgentIterationLimitError extends AppError {
-  constructor(limit: number) {
-    super(502, "AGENT_ITERATION_LIMIT", `The assistant could not finish the answer within ${limit} steps`);
-  }
-}
-
-/** One tool call as shown to the user ("searched products: 3 results"). */
-export type ToolCallSummary = {
-  name: string;
-  input: unknown;
-  resultCount?: number;
-  error?: string;
-};
-
-/** Progress events for streaming clients. */
-export type AgentEvent =
-  | { type: "tool_start"; name: string; input: unknown }
-  | ({ type: "tool_end" } & ToolCallSummary)
-  /** Text as the model writes it (stream mode only). */
-  | { type: "delta"; text: string };
+import { AgentIterationLimitError } from "./chat.errors";
+import type { AgentEvent, ToolCallSummary } from "./chat.types";
 
 export type AgentRunInput = {
   ctx: ToolContext;
