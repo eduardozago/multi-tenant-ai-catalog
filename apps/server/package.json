@@ -11,7 +11,8 @@
     "env:generate": "varlock codegen",
     "test": "vitest run",
     "test:watch": "vitest",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "chat:smoke": "tsx scripts/chat-smoke.ts"
   },
   "dependencies": {
     "@multi-tenant-ai-catalog/db": "workspace:*",

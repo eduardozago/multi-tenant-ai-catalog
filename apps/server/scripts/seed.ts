@@ -1,4 +1,4 @@
-// Idempotent: clears products, users and companies, then recreates two tenants
+// Idempotent: clears conversations, products, users and companies, then recreates two tenants
 // with known credentials and a demo catalog each.
 // Run from the repo root with: pnpm db:seed
 import "varlock/auto-load";
@@ -8,6 +8,7 @@ import mongoose, { type Types } from "mongoose";
 
 import { env } from "../src/config/env";
 import { PasswordHasher } from "../src/modules/auth/password";
+import { ConversationModel } from "../src/modules/chat/conversation.model";
 import { CompanyModel } from "../src/modules/companies/company.model";
 import { ProductModel } from "../src/modules/products/product.model";
 import { UserModel } from "../src/modules/users/user.model";
@@ -26,6 +27,7 @@ const TENANTS: { name: string; slug: string; products: SeedProduct[] }[] = [
 async function clear() {
   // Tenant-scope bypass #2 (the other is UserRepository.findByEmailAcrossTenants):
   // wiping every tenant's data is exactly what the seed is for.
+  await ConversationModel.deleteMany({}).setOptions({ [BYPASS_TENANT_SCOPE]: true });
   await ProductModel.deleteMany({}).setOptions({ [BYPASS_TENANT_SCOPE]: true });
   await UserModel.deleteMany({}).setOptions({ [BYPASS_TENANT_SCOPE]: true });
   await CompanyModel.deleteMany({});
@@ -36,7 +38,12 @@ async function seed() {
   // Make the database indexes match the schemas before inserting (unique email, product
   // compound indexes). syncIndexes also drops stale ones: init() cannot replace an index
   // whose options changed, such as the collation added to { company_id, name }.
-  await Promise.all([CompanyModel.syncIndexes(), UserModel.syncIndexes(), ProductModel.syncIndexes()]);
+  await Promise.all([
+    CompanyModel.syncIndexes(),
+    UserModel.syncIndexes(),
+    ProductModel.syncIndexes(),
+    ConversationModel.syncIndexes(),
+  ]);
   await clear();
 
   const passwordHash = await new PasswordHasher().hash(PASSWORD);
