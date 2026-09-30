@@ -2,10 +2,9 @@ import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { ProductRepository } from "../src/modules/products/product.repository";
-
 import {
   createMember,
-  createProduct as createProductAs,
+  createProduct,
   createTestApp,
   registerCompany,
   type Session,
@@ -23,10 +22,10 @@ describe("products CRUD", () => {
     member = await createMember(app, admin, "user@acme.test", "user");
   });
 
-  const createProduct = (overrides: Record<string, unknown> = {}) => createProductAs(app, admin, overrides);
+  const createOwnProduct = (overrides: Record<string, unknown> = {}) => createProduct(app, admin, overrides);
 
   it("lets an admin create, read, update and delete a product", async () => {
-    const created = await createProduct();
+    const created = await createOwnProduct();
     expect(created).toEqual({
       id: expect.any(String),
       ...validProduct,
@@ -54,7 +53,7 @@ describe("products CRUD", () => {
   });
 
   it("does not expose internal fields", async () => {
-    const created = await createProduct();
+    const created = await createOwnProduct();
     const res = await request(app).get(`/products/${created.id}`).set("Cookie", admin.cookie).expect(200);
     expect(Object.keys(res.body.product).sort()).toEqual(
       ["category", "createdAt", "description", "id", "imageUrl", "name", "priceCents", "updatedAt"].sort(),
@@ -62,10 +61,10 @@ describe("products CRUD", () => {
   });
 
   it("returns imageUrl null when the product has no image, and PATCH null removes it", async () => {
-    const noImage = await createProduct({ imageUrl: undefined });
+    const noImage = await createOwnProduct({ imageUrl: undefined });
     expect(noImage.imageUrl).toBeNull();
 
-    const withImage = await createProduct();
+    const withImage = await createOwnProduct();
     const res = await request(app)
       .patch(`/products/${withImage.id}`)
       .set("Cookie", admin.cookie)
@@ -76,18 +75,18 @@ describe("products CRUD", () => {
 
   describe("roles", () => {
     it("lets a user read a product", async () => {
-      const created = await createProduct();
+      const created = await createOwnProduct();
       await request(app).get(`/products/${created.id}`).set("Cookie", member.cookie).expect(200);
     });
 
     it("forbids a user from creating, updating or deleting", async () => {
-      const created = await createProduct();
+      const created = await createOwnProduct();
 
-      const responses = await Promise.all([
-        request(app).post("/products").set("Cookie", member.cookie).send(validProduct),
-        request(app).patch(`/products/${created.id}`).set("Cookie", member.cookie).send({ priceCents: 1 }),
-        request(app).delete(`/products/${created.id}`).set("Cookie", member.cookie),
-      ]);
+      const responses = [
+        await request(app).post("/products").set("Cookie", member.cookie).send(validProduct),
+        await request(app).patch(`/products/${created.id}`).set("Cookie", member.cookie).send({ priceCents: 1 }),
+        await request(app).delete(`/products/${created.id}`).set("Cookie", member.cookie),
+      ];
       for (const res of responses) {
         expect(res.status).toBe(403);
         expect(res.body.error.code).toBe("FORBIDDEN");
@@ -109,6 +108,8 @@ describe("products CRUD", () => {
       ["price as string", { priceCents: "100" }],
       ["invalid URL", { imageUrl: "not a url" }],
       ["non-http URL", { imageUrl: "javascript:alert(1)" }],
+      // Accepted by z.url() alone but rejected by the model: used to surface as a 500.
+      ["URL with a space", { imageUrl: "https://a.com/foo bar.png" }],
       ["empty name", { name: "   " }],
       ["name too short", { name: "A" }],
       ["missing category", { category: undefined }],
@@ -125,11 +126,12 @@ describe("products CRUD", () => {
       ["negative price", { priceCents: -1 }],
       ["non-integer price", { priceCents: 0.1 }],
       ["invalid URL", { imageUrl: "ftp://example.com/a.png" }],
+      ["URL with a space", { imageUrl: "https://a.com/foo bar.png" }],
       ["empty name", { name: "" }],
       ["empty body", {}],
       ["only unknown fields", { company_id: "a".repeat(24) }],
     ])("rejects %s on update with 400", async (_name, body) => {
-      const created = await createProduct();
+      const created = await createOwnProduct();
       const res = await request(app)
         .patch(`/products/${created.id}`)
         .set("Cookie", admin.cookie)
@@ -154,7 +156,7 @@ describe("products CRUD", () => {
   });
 
   it("enforces schema validators on repository updates, below the zod layer", async () => {
-    const created = await createProduct();
+    const created = await createOwnProduct();
     const repo = new ProductRepository();
     const companyId = admin.user.company.id;
 

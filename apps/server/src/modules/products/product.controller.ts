@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 
 import { getContext } from "../../shared/context";
-import type { Product } from "./product.repository";
+import { toProductDto } from "./product.dto";
 import type {
   CreateProductInput,
   ListProductsQuery,
@@ -10,38 +10,16 @@ import type {
 } from "./product.schemas";
 import type { ProductService } from "./product.service";
 
-export type ProductDto = {
-  id: string;
-  name: string;
-  description: string;
-  priceCents: number;
-  category: string;
-  imageUrl: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-// No company_id (implied by the session), createdBy or __v.
-export function toProductDto(product: Product): ProductDto {
-  return {
-    id: product.id,
-    name: product.name,
-    description: product.description,
-    priceCents: product.priceCents,
-    category: product.category,
-    imageUrl: product.imageUrl,
-    createdAt: product.createdAt,
-    updatedAt: product.updatedAt,
-  };
-}
-
 export class ProductController {
   constructor(private readonly products: ProductService) {}
 
   list = async (req: Request, res: Response) => {
-    const result = await this.products.list(getContext(req), req.validated.query as ListProductsQuery);
-    const { items, ...meta } = result;
-    res.status(200).json({ data: items.map(toProductDto), meta });
+    const page = await this.products.list(getContext(req), req.validated.query as ListProductsQuery);
+    // Paginated envelope (D-18); meta is listed field by field so nothing internal leaks.
+    res.status(200).json({
+      data: page.items.map(toProductDto),
+      meta: { page: page.page, limit: page.limit, total: page.total, totalPages: page.totalPages },
+    });
   };
 
   categories = async (req: Request, res: Response) => {

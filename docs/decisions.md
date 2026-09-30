@@ -138,7 +138,7 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Status: aceita
 - Contexto: `GET /products?search=` e as tools do agente buscam por trechos do nome ou da descrição ("ração" deve achar "Ração Premium 15kg").
 - Opções: regex case-insensitive, text index do MongoDB, Atlas Search.
-- Decisão: regex com flag `i` em `name` e `description`, montada só depois de `escapeRegex` (entrada tratada como texto literal); `search` limitado a 100 caracteres. Mesmo método (`ProductRepository.search`) atende a API e o agente, com `limit` limitado a 50 também no repository.
+- Decisão: regex com flag `i` em `name` e `description`, montada só depois de `escapeRegex` (entrada tratada como texto literal); `search` limitado a 100 caracteres. Mesmo método (`ProductRepository.search`) atende a API e o agente e revalida os filtros com zod (tipos estritos, sem coerção): NaN, objetos como `{ $ne: "x" }` e sorts desconhecidos são rejeitados antes da query, e `limit` acima de 50 é reduzido a 50.
 - Motivo: casa trechos e prefixos, que o text index não faz (ele casa palavras inteiras com stemming); nesta escala (dezenas de produtos por tenant, sempre filtrados por `company_id`) o scan é barato. Sem escape, `.*` ampliaria a busca e padrões como `(a+)+$` causariam backtracking catastrófico.
 - Trade-offs: regex sem âncora não usa índice; sem ranking por relevância; acentos contam ("racao" não acha "ração").
 - Em produção: Atlas Search com analyzer pt-BR (acentos, stemming, fuzzy e relevância) ou text index; para o agente, busca semântica com embeddings.
@@ -149,4 +149,22 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Opções: ordenação binária, campo `nameSort` normalizado, collation `{ locale: "pt" }`.
 - Decisão: `sort=name_asc` usa collation pt, e o índice `{ company_id, name }` é criado com a mesma collation.
 - Motivo: ordem correta em português sem campo extra; o MongoDB só usa um índice para ordenar quando a collation da query é igual à do índice.
-- Trade-offs: só `name_asc` usa collation; filtros de igualdade (categoria) continuam sensíveis a maiúsculas (D-14).
+- Trade-offs: só `name_asc` usa collation; filtros de igualdade (categoria) continuam sensíveis a maiúsculas (D-14). Um banco criado antes da collation mantém o índice antigo, e o `autoIndex` falha em silêncio ao recriá-lo; o seed usa `syncIndexes()`, então basta rodar `pnpm db:seed`.
+
+## D-18: Envelope de listagem paginada `{ data, meta }` com offset
+- Status: aceita
+- Contexto: `GET /products` devolve uma página e o web precisa montar a paginação; os demais endpoints usam envelope nomeado (`{ product }`, `{ users }`, `{ categories }`).
+- Opções: array puro com headers (`X-Total-Count`), envelope nomeado (`{ products, total }`), `{ data, meta }`; paginação por offset ou por cursor.
+- Decisão: listas paginadas usam `{ data, meta: { page, limit, total, totalPages } }`; recursos únicos e listas curtas sem paginação seguem com envelope nomeado. Paginação por `page`/`limit` (máx. 50), com `countDocuments` e `find` em paralelo. `meta` é montado campo a campo no controller.
+- Motivo: o formato separa dados de metadados e é o mesmo para qualquer recurso paginado futuro; offset permite pular para uma página e mostrar o total, o que a UI de catálogo precisa.
+- Trade-offs: dois formatos de resposta na API (paginado e não paginado); offset fica caro em coleções grandes (`skip` percorre os documentos) e pode repetir ou pular itens se o catálogo mudar entre páginas; o `count` custa uma query a mais.
+- Em produção: paginação por cursor (`createdAt` + `_id`) para listas grandes ou infinitas, e contagem aproximada ou em cache.
+
+## D-19: Códigos de erro por recurso; validação do Mongoose como bug
+- Status: aceita
+- Contexto: o módulo de produtos é a referência para os próximos, e o cliente (web e agente) precisa distinguir erros sem ler a mensagem.
+- Opções: código genérico (`NOT_FOUND`), código por recurso (`PRODUCT_NOT_FOUND`); erro de validação do Mongoose como 400 ou como 500.
+- Decisão: erros de domínio levam código por recurso (`new NotFoundError("PRODUCT_NOT_FOUND", ...)`, código primeiro, como `ConflictError`). O contrato de entrada é o schema zod, que usa as mesmas regras do schema Mongoose (constantes compartilhadas em `product.constants.ts`); um `ValidationError` do Mongoose significa que as duas camadas divergiram e continua virando 500, logado.
+- Motivo: códigos estáveis por recurso deixam o web mostrar mensagens específicas; tratar a divergência como bug evita esconder uma regra que o zod deixou passar. Um teste cobre o caso que já divergiu (URL com espaço).
+- Trade-offs: se uma nova regra for adicionada só no Mongoose, o cliente vê 500 até a correção.
+- Em produção: alerta sobre `ValidationError` do Mongoose nos logs, ou teste que compara as regras do zod e do schema.

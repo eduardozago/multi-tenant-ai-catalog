@@ -1,7 +1,9 @@
-import type { QueryFilter, SortOrder } from "mongoose";
+import type { QueryFilter, SortOrder, UpdateQuery } from "mongoose";
 
 import { escapeRegex } from "../../shared/regex";
+import { PT_LOCALE, type ProductSort } from "./product.constants";
 import { NAME_COLLATION, type ProductDocument, ProductModel } from "./product.model";
+import { type ProductSearchFilters, productSearchFiltersSchema } from "./product.schemas";
 
 export type Product = {
   id: string;
@@ -34,26 +36,6 @@ export type ProductChanges = Partial<{
   imageUrl: string | null;
 }>;
 
-export const PRODUCT_SORTS = ["newest", "price_asc", "price_desc", "name_asc"] as const;
-export type ProductSort = (typeof PRODUCT_SORTS)[number];
-
-export const DEFAULT_PAGE_SIZE = 12;
-export const MAX_PAGE_SIZE = 50;
-
-/**
- * Shared by the REST listing and the chat agent tools. Every field is optional;
- * the tenant is never part of the filters, it is the separate first argument.
- */
-export type ProductSearchFilters = {
-  search?: string;
-  category?: string;
-  minPriceCents?: number;
-  maxPriceCents?: number;
-  sort?: ProductSort;
-  page?: number;
-  limit?: number;
-};
-
 /** `page` and `limit` are the values actually applied, after defaults and clamping. */
 export type ProductSearchResult = { items: Product[]; total: number; page: number; limit: number };
 
@@ -64,10 +46,6 @@ const SORTS: Record<ProductSort, Record<string, SortOrder>> = {
   price_desc: { priceCents: -1, _id: -1 },
   name_asc: { name: 1, _id: 1 },
 };
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(Math.trunc(value), min), max);
-}
 
 // The only fields copied into $set. Listing them keeps company_id and createdBy out
 // of updates even if a caller passes a wider object.
@@ -95,25 +73,26 @@ export class ProductRepository {
   }
 
   /**
-   * Filtered, sorted, paginated listing. Page size is clamped here as well as in the
-   * HTTP schema, because the agent tools call this method with model-provided input.
+   * Filtered, sorted, paginated listing, shared by the REST listing and the chat agent
+   * tools. The tenant is the separate first argument, never a filter. Filters are
+   * re-validated here because the tools pass model-provided values without the HTTP
+   * schema; invalid input throws a ZodError (400 over HTTP, a tool error for the agent).
    */
-  async search(companyId: string, filters: ProductSearchFilters = {}): Promise<ProductSearchResult> {
-    const page = clamp(filters.page ?? 1, 1, Number.MAX_SAFE_INTEGER);
-    const limit = clamp(filters.limit ?? DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE);
-    const sort = filters.sort ?? "newest";
+  async search(companyId: string, input: ProductSearchFilters = {}): Promise<ProductSearchResult> {
+    const { search, category, minPriceCents, maxPriceCents, sort, page, limit } =
+      productSearchFiltersSchema.parse(input);
 
     const query: QueryFilter<ProductDocument> = { company_id: companyId };
-    if (filters.category !== undefined) query.category = filters.category;
-    if (filters.minPriceCents !== undefined || filters.maxPriceCents !== undefined) {
+    if (category !== undefined) query.category = category;
+    if (minPriceCents !== undefined || maxPriceCents !== undefined) {
       query.priceCents = {
-        ...(filters.minPriceCents !== undefined && { $gte: filters.minPriceCents }),
-        ...(filters.maxPriceCents !== undefined && { $lte: filters.maxPriceCents }),
+        ...(minPriceCents !== undefined && { $gte: minPriceCents }),
+        ...(maxPriceCents !== undefined && { $lte: maxPriceCents }),
       };
     }
-    if (filters.search) {
+    if (search) {
       // Escaped: the input is matched literally, never interpreted as a pattern (D-16).
-      const pattern = new RegExp(escapeRegex(filters.search), "i");
+      const pattern = new RegExp(escapeRegex(search), "i");
       query.$or = [{ name: pattern }, { description: pattern }];
     }
 
@@ -127,10 +106,10 @@ export class ProductRepository {
     return { items: docs.map(toProduct), total, page, limit };
   }
 
-  /** Distinct categories of one company, sorted for display (pt-BR order). */
+  /** Distinct categories of one company, sorted for display in Portuguese order. */
   async listCategories(companyId: string): Promise<string[]> {
     const categories: string[] = await ProductModel.distinct("category", { company_id: companyId });
-    return categories.sort((a, b) => a.localeCompare(b, "pt-BR"));
+    return categories.sort((a, b) => a.localeCompare(b, PT_LOCALE));
   }
 
   async create(companyId: string, input: NewProduct): Promise<Product> {
@@ -153,13 +132,14 @@ export class ProductRepository {
     for (const field of EDITABLE_FIELDS) {
       if (changes[field] !== undefined) $set[field] = changes[field];
     }
-    const $unset: Record<string, 1> = {};
-    if (changes.imageUrl === null) $unset.imageUrl = 1;
-    else if (changes.imageUrl !== undefined) $set.imageUrl = changes.imageUrl;
+    if (typeof changes.imageUrl === "string") $set.imageUrl = changes.imageUrl;
+
+    const update: UpdateQuery<ProductDocument> = { $set };
+    if (changes.imageUrl === null) update.$unset = { imageUrl: 1 };
 
     const doc = await ProductModel.findOneAndUpdate(
       { _id: productId, company_id: companyId },
-      { $set, $unset },
+      update,
       // Schema validators do not run on updates by default.
       { runValidators: true, returnDocument: "after" },
     ).lean();

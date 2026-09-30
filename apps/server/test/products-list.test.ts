@@ -1,5 +1,6 @@
 import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
+import { ZodError } from "zod";
 
 import { ProductRepository } from "../src/modules/products/product.repository";
 import { createMember, createProduct, createTestApp, registerCompany, type Session } from "./helpers";
@@ -169,11 +170,30 @@ describe("GET /products", () => {
   });
 
   describe("ProductRepository.search (reused by agent tools)", () => {
-    it("clamps page size and page even when called without the HTTP schema", async () => {
-      const repo = new ProductRepository();
-      const result = await repo.search(adminA.user.company.id, { limit: 1000, page: -5 });
+    it("clamps a page size above the maximum instead of rejecting it", async () => {
+      const result = await new ProductRepository().search(adminA.user.company.id, { limit: 1000 });
       expect(result).toMatchObject({ page: 1, limit: 50, total: 6 });
-      expect(result.items).toHaveLength(6);
+    });
+
+    // Values a model (or a bug) could pass without the HTTP schema. Each must be
+    // rejected before reaching Mongo, never widen the result or lift the page cap.
+    it.each([
+      ["NaN limit", { limit: Number.NaN }],
+      ["NaN page", { page: Number.NaN }],
+      ["negative page", { page: -5 }],
+      ["object limit", { limit: {} }],
+      ["operator as category", { category: { $ne: "x" } }],
+      ["regex operator as category", { category: { $regex: "(a+)+$" } }],
+      ["non-string search", { search: ["a"] }],
+      ["search above the length cap", { search: "a".repeat(101) }],
+      ["unknown sort", { sort: "__proto__" }],
+      ["NaN price", { minPriceCents: Number.NaN }],
+      ["operator as price", { maxPriceCents: { $gt: 0 } }],
+      ["min above max", { minPriceCents: 10, maxPriceCents: 1 }],
+    ])("rejects %s with a ZodError", async (_name, filters) => {
+      const repo = new ProductRepository();
+      // Deliberately ill-typed: this is what an unvalidated caller could send.
+      await expect(repo.search(adminA.user.company.id, filters as never)).rejects.toBeInstanceOf(ZodError);
     });
 
     it("applies defaults and stays in the given tenant", async () => {

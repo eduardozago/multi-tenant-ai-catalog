@@ -3,6 +3,7 @@ import request from "supertest";
 import { expect } from "vitest";
 
 import { type AppOptions, createApp } from "../src/app";
+import type { ProductDto } from "../src/modules/products/product.dto";
 
 export const PASSWORD = "password123";
 
@@ -60,7 +61,8 @@ export const validProduct = {
   imageUrl: "https://picsum.photos/seed/racao-premium/640/480",
 };
 
-export type ProductBody = { id: string } & Record<string, unknown>;
+/** A product as it arrives over HTTP: the DTO with dates serialized to strings. */
+export type ProductBody = Omit<ProductDto, "createdAt" | "updatedAt"> & { createdAt: string; updatedAt: string };
 
 /** Admin creates a product through the API; `overrides` replace fields of `validProduct`. */
 export async function createProduct(

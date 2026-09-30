@@ -1,6 +1,7 @@
 import { model, Schema, type Types } from "mongoose";
 
 import { tenantScoped } from "../../shared/db/tenant-scoped.plugin";
+import { HTTP_URL, PT_LOCALE } from "./product.constants";
 
 export type ProductDocument = {
   _id: Types.ObjectId;
@@ -14,8 +15,6 @@ export type ProductDocument = {
   createdAt: Date;
   updatedAt: Date;
 };
-
-export const HTTP_URL = /^https?:\/\/\S+$/i;
 
 // zod validates at the edge; these validators are the last line of defense and
 // also run on PATCH through `runValidators`.
@@ -45,7 +44,7 @@ productSchema.index({ company_id: 1, createdAt: -1 }); // default listing (newes
 productSchema.index({ company_id: 1, category: 1 }); // category filter and distinct
 // name_asc sorts with pt collation so "Água" comes before "Bola", not after "Zíper".
 // A query only uses this index for sorting when it passes the same collation.
-export const NAME_COLLATION = { locale: "pt" } as const;
+export const NAME_COLLATION = { locale: PT_LOCALE };
 productSchema.index({ company_id: 1, name: 1 }, { collation: NAME_COLLATION });
 
 export const ProductModel = model<ProductDocument>("Product", productSchema);

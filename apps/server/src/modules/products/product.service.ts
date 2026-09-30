@@ -1,19 +1,13 @@
 import type { RequestContext } from "../../shared/context";
 import { NotFoundError } from "../../shared/errors";
-import type { Product, ProductRepository, ProductSearchFilters } from "./product.repository";
-import type { CreateProductInput, UpdateProductInput } from "./product.schemas";
+import type { Product, ProductRepository, ProductSearchResult } from "./product.repository";
+import type { CreateProductInput, ProductSearchFilters, UpdateProductInput } from "./product.schemas";
 
-export type ProductPage = {
-  items: Product[];
-  page: number;
-  limit: number;
-  total: number;
-  totalPages: number;
-};
+export type ProductPage = ProductSearchResult & { totalPages: number };
 
 // Same error for "does not exist" and "belongs to another company": a 403 would
 // confirm that the id exists in some other tenant.
-const productNotFound = () => new NotFoundError("Product not found", "PRODUCT_NOT_FOUND");
+const productNotFound = () => new NotFoundError("PRODUCT_NOT_FOUND", "Product not found");
 
 export class ProductService {
   constructor(private readonly products: ProductRepository) {}
@@ -46,7 +40,14 @@ export class ProductService {
   }
 
   async update(ctx: RequestContext, productId: string, input: UpdateProductInput): Promise<Product> {
-    const product = await this.products.update(ctx.companyId, productId, input);
+    // Mapped field by field, like create: the input never reaches the update as a whole.
+    const product = await this.products.update(ctx.companyId, productId, {
+      name: input.name,
+      description: input.description,
+      priceCents: input.priceCents,
+      category: input.category,
+      imageUrl: input.imageUrl,
+    });
     if (!product) throw productNotFound();
     return product;
   }

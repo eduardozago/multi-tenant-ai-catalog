@@ -45,8 +45,7 @@ async function seed() {
 
   for (const tenant of TENANTS) {
     const company = await CompanyModel.create({ name: tenant.name });
-    const userIds: Partial<Record<Role, Types.ObjectId>> = {};
-    for (const role of ["admin", "user"] as const) {
+    const createUser = async (role: Role): Promise<Types.ObjectId> => {
       const email = `${role}@${tenant.slug}.test`;
       const user = await UserModel.create({
         company_id: company._id,
@@ -55,15 +54,17 @@ async function seed() {
         passwordHash,
         role,
       });
-      userIds[role] = user._id;
       credentials.push({ company: tenant.name, email, password: PASSWORD, role });
-    }
+      return user._id;
+    };
+    const adminId = await createUser("admin");
+    await createUser("user");
 
     // Explicit fields per product (no spreading); every product belongs to this company.
     await ProductModel.insertMany(
       tenant.products.map((product) => ({
         company_id: company._id,
-        createdBy: userIds.admin,
+        createdBy: adminId,
         name: product.name,
         description: product.description,
         priceCents: product.priceCents,
