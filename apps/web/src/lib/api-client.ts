@@ -57,7 +57,12 @@ async function parseError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, "UNKNOWN_ERROR", response.statusText || "Request failed");
 }
 
-export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
+/**
+ * The request itself: headers, cookie, network and non-2xx errors (including the 401
+ * handler). Returns the raw response on success, so the SSE client (lib/sse.ts) reads
+ * the body as a stream with exactly the same error behavior as a JSON call.
+ */
+export async function apiRequest(path: string, options: RequestOptions = {}): Promise<Response> {
   const method = options.method ?? "GET";
   const headers: HeadersInit = {};
   // The server rejects non-JSON writes with 415 (CSRF protection), even when there is no body.
@@ -83,7 +88,11 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     if (response.status === 401 && !SESSION_ENDPOINTS.has(path)) onUnauthorized?.();
     throw error;
   }
+  return response;
+}
 
+export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await apiRequest(path, options);
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
