@@ -237,3 +237,11 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Decisão: tools declaradas com `strict: true` (todo campo em `required`, opcionais como tipos anuláveis, `additionalProperties: false` em todo objeto), geradas a partir do schema zod; o registry revalida com zod e trata `null` como "não informado". JSON inválido, input inválido ou tool desconhecida viram `{ error, details }` como resultado de tool com `isError`, nunca exceção.
 - Motivo: strict garante a forma dos argumentos; zod garante valores (faixas, tamanhos) e remove campos extras como `company_id`. O modelo recebe o erro e pode corrigir a chamada na próxima iteração.
 - Trade-offs: o modo strict não aceita parte do JSON Schema (ex.: `default`), então padrões são aplicados no código da tool.
+
+## D-28: Resultado de tool separado entre modelo e UI; falhas inesperadas não viram erro de tool
+- Status: aceita
+- Contexto: o modelo precisa de poucos campos (cada campo custa tokens em toda iteração seguinte), mas os cards da UI precisam de `imageUrl`; e uma tool pode falhar por culpa do modelo (input inválido) ou da infraestrutura (banco fora).
+- Opções: mesmo payload para modelo e UI; segunda leitura do banco para montar os cards; tool devolve `{ content, products }`. Para falhas: tudo vira erro de tool, ou só o que o modelo pode corrigir.
+- Decisão: `execute` devolve `content` (projeção enviada ao modelo: id, nome, categoria, preço em BRL e em centavos, descrição truncada em ~200 caracteres) e `products` (DTO completo, só para a resposta HTTP). JSON inválido, input inválido, tool desconhecida e `product_not_found` voltam ao modelo como erro de tool; qualquer outra exceção é relançada e vira 500 logado. Id malformado e id de outro tenant dão o mesmo `product_not_found`.
+- Motivo: menos tokens sem uma segunda query; o modelo corrige o que pode corrigir, e uma queda do banco não vira "não encontrei produtos".
+- Trade-offs: dois formatos de produto no módulo de chat; a resposta do chat falha inteira se o banco cair no meio do loop.
