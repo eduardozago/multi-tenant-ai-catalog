@@ -23,6 +23,10 @@ export class ProductService {
     return { items, page, limit, total, totalPages: Math.ceil(total / limit) };
   }
 
+  listCategories(ctx: RequestContext): Promise<string[]> {
+    return this.products.listCategories(ctx.companyId);
+  }
+
   async getById(ctx: RequestContext, productId: string): Promise<Product> {
     const product = await this.products.findById(ctx.companyId, productId);
     if (!product) throw productNotFound();

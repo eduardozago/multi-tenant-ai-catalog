@@ -127,6 +127,12 @@ export class ProductRepository {
     return { items: docs.map(toProduct), total, page, limit };
   }
 
+  /** Distinct categories of one company, sorted for display (pt-BR order). */
+  async listCategories(companyId: string): Promise<string[]> {
+    const categories: string[] = await ProductModel.distinct("category", { company_id: companyId });
+    return categories.sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }
+
   async create(companyId: string, input: NewProduct): Promise<Product> {
     // company_id is set explicitly from the argument, never spread from input.
     const doc = await ProductModel.create({

@@ -183,3 +183,33 @@ describe("GET /products", () => {
     });
   });
 });
+
+describe("GET /products/categories", () => {
+  it("returns each tenant's own distinct categories, sorted", async () => {
+    const adminA = await registerCompany(app, "a");
+    const adminB = await registerCompany(app, "b");
+    const userA = await createMember(app, adminA, "user@a.test", "user");
+    for (const category of ["Rações", "Brinquedos", "Acessórios", "Rações"]) {
+      await createProduct(app, adminA, { category });
+    }
+    for (const category of ["Notebooks", "Áudio", "Brinquedos"]) {
+      await createProduct(app, adminB, { category });
+    }
+
+    const resA = await request(app).get("/products/categories").set("Cookie", userA.cookie).expect(200);
+    expect(resA.body).toEqual({ categories: ["Acessórios", "Brinquedos", "Rações"] });
+
+    const resB = await request(app).get("/products/categories").set("Cookie", adminB.cookie).expect(200);
+    expect(resB.body).toEqual({ categories: ["Áudio", "Brinquedos", "Notebooks"] });
+  });
+
+  it("returns an empty list for a company without products", async () => {
+    const admin = await registerCompany(app, "empty");
+    const res = await request(app).get("/products/categories").set("Cookie", admin.cookie).expect(200);
+    expect(res.body).toEqual({ categories: [] });
+  });
+
+  it("requires authentication", async () => {
+    await request(app).get("/products/categories").expect(401);
+  });
+});

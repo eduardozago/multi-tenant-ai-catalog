@@ -44,6 +44,11 @@ export class ProductController {
     res.status(200).json({ data: items.map(toProductDto), meta });
   };
 
+  categories = async (req: Request, res: Response) => {
+    const categories = await this.products.listCategories(getContext(req));
+    res.status(200).json({ categories });
+  };
+
   get = async (req: Request, res: Response) => {
     const { id } = req.validated.params as ProductParams;
     const product = await this.products.getById(getContext(req), id);

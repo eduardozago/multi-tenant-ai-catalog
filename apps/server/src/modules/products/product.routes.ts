@@ -20,6 +20,8 @@ export function createProductRouter({ controller, authenticate }: Deps) {
   router.use(authenticate);
 
   router.get("/", validate({ query: listProductsQuerySchema }), controller.list);
+  // Before "/:id", otherwise "categories" would be parsed (and rejected) as a product id.
+  router.get("/categories", controller.categories);
   router.get("/:id", validate({ params: productParamsSchema }), controller.get);
   router.post("/", authorize("admin"), validate({ body: createProductBodySchema }), controller.create);
   router.patch(
