@@ -15,6 +15,7 @@ import {
   PRODUCT_GRID_CLASS,
   ProductGridSkeleton,
 } from "@/features/products/components/catalog-states";
+import { DeleteProductDialog } from "@/features/products/components/delete-product-dialog";
 import { type ProductActions, ProductCard } from "@/features/products/components/product-card";
 import { ProductDetailSheet } from "@/features/products/components/product-detail-sheet";
 import { ProductFormSheet } from "@/features/products/components/product-form-sheet";
@@ -67,6 +68,11 @@ function ProductsPage() {
     key: 0,
   });
 
+  const [deletion, setDeletion] = useState<{ product: Product | null; open: boolean }>({
+    product: null,
+    open: false,
+  });
+
   const openForm = (product: Product | null) => {
     // One panel at a time: editing from the detail sheet replaces it with the form.
     setDetail((current) => ({ ...current, open: false }));
@@ -99,8 +105,20 @@ function ProductsPage() {
     }
   }, [page, totalPages, products.isPlaceholderData, navigate]);
 
-  // Delete is wired in the next step (confirmation dialog).
-  const actions: ProductActions = { onEdit: openForm, onDelete: () => {} };
+  const actions: ProductActions = {
+    onEdit: openForm,
+    // The detail sheet stays open underneath: cancelling the dialog goes back to it.
+    onDelete: (product) => setDeletion({ product, open: true }),
+  };
+
+  const onDeleted = (deleted: Product) => {
+    if (detail.product?.id === deleted.id) setDetail((current) => ({ ...current, open: false }));
+    // The last card of a page is gone: step back now instead of flashing an empty page
+    // until the refetch lands (the clamp effect above would get there, one render later).
+    if (products.data?.data.length === 1 && page > 1) {
+      void navigate({ search: (prev) => ({ ...prev, page: page - 1 > 1 ? page - 1 : undefined }) });
+    }
+  };
 
   const newProductButton = (
     <Button onClick={() => openForm(null)}>
@@ -178,6 +196,12 @@ function ProductsPage() {
           product={form.product}
           formKey={form.key}
           onOpenChange={(open) => setForm((current) => ({ ...current, open }))}
+        />
+        <DeleteProductDialog
+          product={deletion.product}
+          open={deletion.open}
+          onOpenChange={(open) => setDeletion((current) => ({ ...current, open }))}
+          onDeleted={onDeleted}
         />
       </Can>
     </>

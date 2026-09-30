@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 
+import { ApiError } from "@/lib/api-client";
 import { getErrorMessage } from "@/lib/form-errors";
 
 import {
@@ -103,6 +104,10 @@ export function useDeleteProduct() {
     },
     onError: (error) => {
       toast.error("Não foi possível excluir o produto", { description: getErrorMessage(error) });
+      // Already deleted (another tab or admin): refresh so the stale card disappears.
+      if (error instanceof ApiError && error.code === "PRODUCT_NOT_FOUND") {
+        void queryClient.invalidateQueries({ queryKey: productKeys.all });
+      }
     },
   });
 }
