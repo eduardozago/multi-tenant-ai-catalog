@@ -39,15 +39,16 @@ export class ChatController {
    * an `error` event with the same code and message the error handler would use.
    */
   stream = async (req: Request, res: Response) => {
-    const turn = await this.chat.prepare(getContext(req), req.validated.body as SendMessageInput);
-
     // Client disconnect (tab closed, fetch aborted) cancels the model call and the
-    // loop; complete() then throws and nothing is stored. "close" also fires after a
-    // normal end, which writableFinished tells apart.
+    // loop; complete() then throws and nothing is stored. Registered before prepare()
+    // so a client that leaves during it is not missed ("close" would already have
+    // fired). "close" also fires after a normal end, which writableFinished tells apart.
     const abort = new AbortController();
     res.on("close", () => {
       if (!res.writableFinished) abort.abort();
     });
+
+    const turn = await this.chat.prepare(getContext(req), req.validated.body as SendMessageInput);
 
     const events = openEventStream(res);
     events.send("meta", { conversationId: turn.conversationId });

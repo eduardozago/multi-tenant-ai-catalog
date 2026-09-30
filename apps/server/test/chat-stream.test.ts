@@ -1,8 +1,16 @@
+import type { AddressInfo } from "node:net";
+
 import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { LLMUnavailableError } from "../src/modules/chat/llm/errors";
-import { FakeLLMProvider, MidStreamFailure, textResponse, toolUseResponse } from "./fakes/fake-llm-provider";
+import {
+  FakeLLMProvider,
+  MidStreamFailure,
+  textResponse,
+  toolUseResponse,
+  WaitForAbort,
+} from "./fakes/fake-llm-provider";
 import { createProduct, createTestApp, registerCompany, type Session } from "./helpers";
 
 const emptySearch = { query: null, category: null, minPrice: null, maxPrice: null, sort: null, limit: null };
@@ -115,6 +123,39 @@ describe("POST /chat/stream", () => {
 
     expect(second[0]!.data).toEqual({ conversationId });
     expect(provider.requests[1]!.messages).toHaveLength(3);
+  });
+
+  it("cancels the model call when the client disconnects, and stores nothing", async () => {
+    // A real socket: supertest cannot cut a response halfway.
+    const server = app.listen(0);
+    const { port } = server.address() as AddressInfo;
+    const step = new WaitForAbort();
+    provider.push(step);
+    const client = new AbortController();
+
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Cookie: admin.cookie },
+        body: JSON.stringify({ message: "oi" }),
+        signal: client.signal,
+      });
+      const reader = res.body!.getReader();
+      const first = new TextDecoder().decode((await reader.read()).value);
+      expect(first).toContain("event: meta");
+
+      await step.started;
+      client.abort();
+      // Resolves only if the server aborted the provider call.
+      await step.observed;
+      // Let complete() unwind before checking that nothing was stored.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } finally {
+      server.close();
+    }
+
+    const list = await request(app).get("/chat/conversations").set("Cookie", admin.cookie).expect(200);
+    expect(list.body.conversations).toEqual([]);
   });
 
   describe("errors before the stream opens are plain JSON", () => {

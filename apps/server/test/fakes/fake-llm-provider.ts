@@ -15,8 +15,42 @@ export class MidStreamFailure {
   ) {}
 }
 
-/** One scripted step: a response, an error to throw, a mid-stream failure, or a function of the request. */
-export type ScriptedStep = LLMResponse | Error | MidStreamFailure | ((request: LLMRequest) => LLMResponse);
+/**
+ * Hangs until the request's AbortSignal fires, then rejects with its reason, like the
+ * real SDK. `started` resolves when the provider is reached, `observed` when the abort
+ * arrives, so a test can cut the client connection at the right moment.
+ */
+export class WaitForAbort {
+  private markStarted!: () => void;
+  private markObserved!: () => void;
+  readonly started = new Promise<void>((resolve) => {
+    this.markStarted = resolve;
+  });
+  readonly observed = new Promise<void>((resolve) => {
+    this.markObserved = resolve;
+  });
+
+  wait(signal: AbortSignal | undefined): Promise<never> {
+    this.markStarted();
+    return new Promise((_resolve, reject) => {
+      if (!signal) return; // never settles: a test without a signal would time out
+      const onAbort = () => {
+        this.markObserved();
+        reject(signal.reason);
+      };
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+    });
+  }
+}
+
+/** One scripted step: a response, an error to throw, a mid-stream failure, an abort wait, or a function of the request. */
+export type ScriptedStep =
+  | LLMResponse
+  | Error
+  | MidStreamFailure
+  | WaitForAbort
+  | ((request: LLMRequest) => LLMResponse);
 
 /**
  * Deterministic LLMProvider for tests: returns the scripted steps in order, one per
@@ -44,15 +78,20 @@ export class FakeLLMProvider implements LLMProvider {
     return step;
   }
 
-  async generate(request: LLMRequest, _options?: GenerateOptions): Promise<LLMResponse> {
+  async generate(request: LLMRequest, options?: GenerateOptions): Promise<LLMResponse> {
     const step = this.next(request);
     if (step instanceof MidStreamFailure) throw step.error;
+    if (step instanceof WaitForAbort) return step.wait(options?.signal);
     return typeof step === "function" ? step(request) : step;
   }
 
   /** Streams the text of the scripted response in two chunks, then the response. */
-  async *stream(request: LLMRequest, _options?: GenerateOptions): AsyncIterable<StreamEvent> {
+  async *stream(request: LLMRequest, options?: GenerateOptions): AsyncIterable<StreamEvent> {
     const step = this.next(request);
+    if (step instanceof WaitForAbort) {
+      await step.wait(options?.signal); // always rejects
+      return;
+    }
     if (step instanceof MidStreamFailure) {
       yield { type: "delta", text: step.text };
       throw step.error;
