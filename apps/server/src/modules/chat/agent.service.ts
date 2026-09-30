@@ -6,6 +6,7 @@ import { buildSystemPrompt } from "./system-prompt";
 import type { ToolExecution, ToolRegistry } from "./tools/registry";
 import type { ToolContext } from "./tools/tool";
 import { AgentIterationLimitError } from "./chat.errors";
+import { LLMUnavailableError } from "./llm/errors";
 import type { AgentEvent, ToolCallSummary } from "./chat.types";
 
 export type AgentRunInput = {
@@ -124,10 +125,10 @@ export class AgentService {
           return { reply, products: selectMentionedProducts(reply, toolProducts), toolCalls, usage, iterations };
         }
 
-        messages.push({ role: "assistant", content: response.content });
         // The model ignored tool_choice "none": no tools run past the cap.
         if (lastCall) break;
 
+        messages.push({ role: "assistant", content: response.content });
         const executions = await Promise.all(calls.map((call) => this.runTool(call, ctx, onEvent)));
 
         // One result per call, in the order of the calls: Promise.all keeps the order
@@ -154,7 +155,8 @@ export class AgentService {
       if (event.type === "delta") onEvent?.({ type: "delta", text: event.text });
       else return event.response;
     }
-    throw new Error("LLM stream ended without a response");
+    // Provider broke the stream contract: an upstream fault like any other (502).
+    throw new LLMUnavailableError(new Error("LLM stream ended without a response"));
   }
 
   private async runTool(

@@ -1,4 +1,5 @@
 import OpenAI, { APIError, APIUserAbortError } from "openai";
+import type { ChatCompletionChunk } from "openai/resources/chat/completions";
 
 import { LLMUnavailableError } from "./errors";
 import { fromOpenAIResponse, toOpenAIRequest } from "./openai.mapping";
@@ -12,6 +13,8 @@ export type OpenAIProviderOptions = {
   maxTokens?: number;
   /** Per-request timeout in ms. */
   timeoutMs?: number;
+  /** Tests pass a stub client to exercise error handling without network. */
+  client?: OpenAI;
 };
 
 /**
@@ -24,9 +27,9 @@ export class OpenAIProvider implements LLMProvider {
   private readonly maxTokens: number;
   private readonly timeoutMs: number;
 
-  constructor({ apiKey, model, maxTokens = 1024, timeoutMs = 30_000 }: OpenAIProviderOptions) {
+  constructor({ apiKey, model, maxTokens = 1024, timeoutMs = 30_000, client }: OpenAIProviderOptions) {
     // The SDK retries 429/5xx/connection errors twice with backoff before throwing.
-    this.client = new OpenAI({ apiKey });
+    this.client = client ?? new OpenAI({ apiKey });
     this.model = model;
     this.maxTokens = maxTokens;
     this.timeoutMs = timeoutMs;
@@ -45,30 +48,48 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async *stream(request: LLMRequest, { signal }: GenerateOptions = {}): AsyncIterable<StreamEvent> {
-    const accumulator = new StreamAccumulator();
+    // Built outside any try: a bug in our mapping is a 500, not "provider unavailable".
+    const params = {
+      ...toOpenAIRequest(request, { model: this.model, maxTokens: this.maxTokens }),
+      stream: true as const,
+      // Adds a final chunk with token usage, so streamed runs are measured too.
+      stream_options: { include_usage: true },
+    };
+
+    let chunks: AsyncIterable<ChatCompletionChunk>;
     try {
-      const chunks = await this.client.chat.completions.create(
-        {
-          ...toOpenAIRequest(request, { model: this.model, maxTokens: this.maxTokens }),
-          stream: true,
-          // Adds a final chunk with token usage, so streamed runs are measured too.
-          stream_options: { include_usage: true },
-        },
-        { signal, timeout: this.timeoutMs },
-      );
-      for await (const chunk of chunks) {
-        const text = accumulator.push(chunk);
-        if (text) yield { type: "delta", text };
-      }
+      chunks = await this.client.chat.completions.create(params, { signal, timeout: this.timeoutMs });
     } catch (error) {
-      // Covers failures before the first chunk and in the middle of the stream. A dropped
-      // connection mid-stream surfaces as a plain Error from the HTTP client, not an
-      // APIError, so anything that is not our own abort counts as upstream failure.
-      if (error instanceof APIUserAbortError || signal?.aborted) throw error;
-      throw error instanceof LLMUnavailableError ? error : new LLMUnavailableError(error);
+      throw normalizeError(error);
+    }
+
+    // Only reading the next chunk is wrapped (network I/O); the accumulator runs outside.
+    const accumulator = new StreamAccumulator();
+    const iterator = chunks[Symbol.asyncIterator]();
+    while (true) {
+      let next: IteratorResult<ChatCompletionChunk>;
+      try {
+        next = await iterator.next();
+      } catch (error) {
+        throw normalizeStreamError(error, signal);
+      }
+      if (next.done) break;
+      const text = accumulator.push(next.value);
+      if (text) yield { type: "delta", text };
     }
     yield { type: "response", response: accumulator.finish() };
   }
+}
+
+/**
+ * Error while reading an open stream. Besides APIError, a dropped connection surfaces as
+ * a plain Error from the HTTP client ("terminated"), so anything that is not our own
+ * abort is an upstream failure here. Unlike generate(), where a non-APIError can only
+ * come from our code.
+ */
+export function normalizeStreamError(error: unknown, signal?: AbortSignal): unknown {
+  if (error instanceof APIUserAbortError || signal?.aborted) return error;
+  return error instanceof LLMUnavailableError ? error : new LLMUnavailableError(error);
 }
 
 /**
