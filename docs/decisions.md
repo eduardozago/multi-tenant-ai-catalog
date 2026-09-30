@@ -236,7 +236,7 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Opções: JSON Schema sem strict e validação manual, strict sem validação própria, strict mais zod.
 - Decisão: tools declaradas com `strict: true` (todo campo em `required`, opcionais como tipos anuláveis, `additionalProperties: false` em todo objeto), geradas a partir do schema zod; o registry revalida com zod e trata `null` como "não informado". JSON inválido, input inválido ou tool desconhecida viram `{ error, details }` como resultado de tool com `isError`, nunca exceção.
 - Motivo: strict garante a forma dos argumentos; zod garante valores (faixas, tamanhos) e remove campos extras como `company_id`. O modelo recebe o erro e pode corrigir a chamada na próxima iteração.
-- Trade-offs: o modo strict não aceita parte do JSON Schema (ex.: `default`), então padrões são aplicados no código da tool.
+- Trade-offs: o modo strict não aceita parte do JSON Schema (ex.: `default`, `minLength`/`maxLength` em strings), então padrões são aplicados no código da tool e os limites de tamanho são removidos do JSON Schema enviado (o zod continua aplicando).
 
 ## D-28: Resultado de tool separado entre modelo e UI; falhas inesperadas não viram erro de tool
 - Status: aceita

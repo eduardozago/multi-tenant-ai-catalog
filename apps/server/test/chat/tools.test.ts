@@ -74,6 +74,16 @@ describe("tool specs", () => {
     }
   });
 
+  it("contain no string length keywords, which strict mode rejects", () => {
+    const serialized = JSON.stringify(registry.specs().map((spec) => spec.inputSchema));
+    expect(serialized).not.toMatch(/minLength|maxLength/);
+  });
+
+  it("still enforce string limits through zod", async () => {
+    const execution = await registry.execute(call("search_products", { ...emptySearch, query: "a".repeat(101) }), ctx);
+    expect(execution.error).toBe("invalid_input");
+  });
+
   it("never contain a tenant identifier", () => {
     const serialized = JSON.stringify(registry.specs().map((spec) => spec.inputSchema));
     expect(serialized).not.toMatch(/company/i);
