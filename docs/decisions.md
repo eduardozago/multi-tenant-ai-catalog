@@ -124,3 +124,12 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Motivo: sem CRUD extra nem consistência entre coleções; uma categoria deixa de existir sozinha quando seu último produto é removido.
 - Trade-offs: "Brinquedos" e "brinquedos" viram categorias diferentes; renomear uma categoria exige atualizar vários produtos; sem metadados (ordem, ícone).
 - Em produção: coleção de categorias por tenant com slug único, ou collation case-insensitive (`strength: 2`) no índice e no distinct.
+
+## D-15: Exclusão física de produtos
+- Status: aceita
+- Contexto: `DELETE /products/:id` (só admin) precisa remover o produto do catálogo e das respostas do agente.
+- Opções: exclusão física, soft delete com `deletedAt`, soft delete + log de auditoria.
+- Decisão: `deleteOne({ _id, company_id })`, resposta 204; produto inexistente ou de outro tenant retorna 404 `PRODUCT_NOT_FOUND`.
+- Motivo: nenhum outro dado referencia produtos (sem pedidos), e soft delete obrigaria todo repository e toda tool do agente a filtrar `deletedAt`, um filtro a mais para esquecer.
+- Trade-offs: sem desfazer nem histórico de quem apagou o quê.
+- Em produção: soft delete aplicado por plugin (como o `tenantScoped`), log de auditoria por tenant (quem, quando, antes/depois) e expurgo após o prazo de retenção.

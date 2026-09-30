@@ -51,3 +51,27 @@ export async function createMember(
     .expect(201);
   return login(app, email);
 }
+
+export const validProduct = {
+  name: "Ração Premium Cães Adultos 15kg",
+  description: "Ração completa para cães adultos de porte médio.",
+  priceCents: 18990,
+  category: "Rações",
+  imageUrl: "https://picsum.photos/seed/racao-premium/640/480",
+};
+
+export type ProductBody = { id: string } & Record<string, unknown>;
+
+/** Admin creates a product through the API; `overrides` replace fields of `validProduct`. */
+export async function createProduct(
+  app: Express,
+  admin: Session,
+  overrides: Record<string, unknown> = {},
+): Promise<ProductBody> {
+  const res = await request(app)
+    .post("/products")
+    .set("Cookie", admin.cookie)
+    .send({ ...validProduct, ...overrides })
+    .expect(201);
+  return res.body.product;
+}

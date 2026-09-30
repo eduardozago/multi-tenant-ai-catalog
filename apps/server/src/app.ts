@@ -6,6 +6,7 @@ import helmet from "helmet";
 import { env } from "./config/env";
 import { createContainer } from "./container";
 import { createAuthRouter } from "./modules/auth/auth.routes";
+import { createProductRouter } from "./modules/products/product.routes";
 import { createUserRouter } from "./modules/users/user.routes";
 import { createAuthenticate } from "./shared/middlewares/authenticate";
 import { errorHandler, notFoundHandler } from "./shared/middlewares/error-handler";
@@ -43,6 +44,7 @@ export function createApp(options: AppOptions = {}) {
     createAuthRouter({ controller: container.authController, authenticate, credentialsRateLimit }),
   );
   app.use("/users", createUserRouter({ controller: container.userController, authenticate }));
+  app.use("/products", createProductRouter({ controller: container.productController, authenticate }));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

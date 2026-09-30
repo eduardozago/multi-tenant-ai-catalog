@@ -6,7 +6,15 @@ import { ProductModel } from "../src/modules/products/product.model";
 import { UserModel } from "../src/modules/users/user.model";
 import { UserRepository } from "../src/modules/users/user.repository";
 import { TenantScopeError } from "../src/shared/errors";
-import { createMember, createTestApp, PASSWORD, registerCompany, type Session } from "./helpers";
+import {
+  createMember,
+  createProduct,
+  createTestApp,
+  PASSWORD,
+  type ProductBody,
+  registerCompany,
+  type Session,
+} from "./helpers";
 
 const app = createTestApp();
 
@@ -53,6 +61,59 @@ describe("tenant isolation through the API", () => {
     const repo = new UserRepository();
     expect(await repo.findById(adminB.user.company.id, adminA.user.id)).toBeNull();
     expect(await repo.findById(adminA.user.company.id, adminA.user.id)).not.toBeNull();
+  });
+});
+
+describe("product isolation through the API", () => {
+  let adminA: Session;
+  let adminB: Session;
+  let productB: ProductBody;
+
+  beforeEach(async () => {
+    adminA = await registerCompany(app, "a");
+    adminB = await registerCompany(app, "b");
+    productB = await createProduct(app, adminB, { name: "Kit Presente B", priceCents: 5000 });
+  });
+
+  async function expectProductBUnchanged() {
+    const res = await request(app).get(`/products/${productB.id}`).set("Cookie", adminB.cookie).expect(200);
+    expect(res.body.product).toEqual(productB);
+  }
+
+  it("returns 404 PRODUCT_NOT_FOUND when admin A reads, updates or deletes a company B product", async () => {
+    const responses = [
+      await request(app).get(`/products/${productB.id}`).set("Cookie", adminA.cookie),
+      await request(app).patch(`/products/${productB.id}`).set("Cookie", adminA.cookie).send({ priceCents: 1 }),
+      await request(app).delete(`/products/${productB.id}`).set("Cookie", adminA.cookie),
+    ];
+    for (const res of responses) {
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe("PRODUCT_NOT_FOUND");
+    }
+
+    await expectProductBUnchanged();
+  });
+
+  it("ignores company_id in a PATCH body: the product stays in its company", async () => {
+    const productA = await createProduct(app, adminA);
+
+    await request(app)
+      .patch(`/products/${productA.id}`)
+      .set("Cookie", adminA.cookie)
+      .send({ name: "Renomeado", company_id: adminB.user.company.id, companyId: adminB.user.company.id })
+      .expect(200);
+
+    const stored = await ProductModel.findOne({ _id: productA.id, company_id: adminA.user.company.id }).lean();
+    expect(stored?.name).toBe("Renomeado");
+    await request(app).get(`/products/${productA.id}`).set("Cookie", adminB.cookie).expect(404);
+  });
+
+  it("ignores company_id in a POST body: the product is created in the caller's company", async () => {
+    const created = await createProduct(app, adminA, { company_id: adminB.user.company.id });
+
+    const stored = await ProductModel.findOne({ _id: created.id, company_id: adminA.user.company.id }).lean();
+    expect(stored?.createdBy.toString()).toBe(adminA.user.id);
+    await request(app).get(`/products/${created.id}`).set("Cookie", adminB.cookie).expect(404);
   });
 });
 
