@@ -168,3 +168,20 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Motivo: códigos estáveis por recurso deixam o web mostrar mensagens específicas; tratar a divergência como bug evita esconder uma regra que o zod deixou passar. Um teste cobre o caso que já divergiu (URL com espaço).
 - Trade-offs: se uma nova regra for adicionada só no Mongoose, o cliente vê 500 até a correção.
 - Em produção: alerta sobre `ValidationError` do Mongoose nos logs, ou teste que compara as regras do zod e do schema.
+
+## D-20: Preço digitado com máscara e convertido para centavos no cliente
+- Status: aceita
+- Contexto: a API recebe `priceCents` inteiro (D-13); o formulário do web precisa aceitar valores em reais no formato pt-BR sem introduzir ponto flutuante no payload.
+- Opções: `<input type="number">` em reais convertido com `* 100`; texto livre interpretado no submit; máscara "caixa registradora" (dígitos entram pela direita) sobre texto.
+- Decisão: máscara sobre texto (`maskPriceInput` em `lib/format.ts`), com "R$" como adorno fora do valor. O schema zod do formulário transforma o texto em centavos com `parseBRLToCents`, que trabalha só com a string de dígitos. A divisão por 100 existe apenas para exibir (`formatBRL`).
+- Motivo: `12.34 * 100` em float dá `1233.9999…`; operar na string elimina o arredondamento. A máscara sempre produz um valor bem formado, então o usuário não precisa saber se o separador é vírgula ou ponto.
+- Trade-offs: a máscara não permite posicionar o cursor no meio do número para editar um dígito; apagar é sempre a partir da direita.
+- Em produção: o mesmo, com testes unitários dos helpers (o web ainda não tem runner de testes).
+
+## D-21: Chaves de query hierárquicas para produtos
+- Status: aceita
+- Contexto: listagem paginada com filtros, detalhe e categorias são três caches que qualquer escrita pode deixar desatualizados.
+- Opções: chaves planas por recurso (`['products', filters]`, `['products', id]`); chaves hierárquicas.
+- Decisão: `['products', 'list', filters]`, `['products', 'detail', id]`, `['products', 'categories']`. Toda mutação invalida `['products']`. A exclusão remove antes o detalhe do produto excluído, para que um painel aberto não busque de novo um recurso que retornaria 404.
+- Motivo: um único prefixo invalida tudo o que uma escrita pode afetar (novo total, categoria nova, nome alterado), e o segundo segmento evita que uma lista com `filters` colida com um detalhe.
+- Trade-offs: invalidar o prefixo inteiro marca como obsoletas todas as páginas em cache; só as que estão na tela são buscadas de novo na hora, as outras quando voltarem a ser exibidas, mesmo que a escrita não as tenha afetado.
