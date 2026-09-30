@@ -24,9 +24,7 @@ export function UserMessage({ content }: { content: string }) {
 /**
  * The assistant's side of an exchange: avatar, `activity` (tool calls, shown first because
  * they happened first), the answer, and `children` below it (product cards, notices).
- *
- * aria-live="polite" with aria-busy while streaming: screen readers wait for the complete
- * answer instead of reading every chunk as it arrives.
+ * Not a live region: the chat announces each finished answer once (see ChatView).
  */
 export function AssistantMessage({
   text,
@@ -43,7 +41,7 @@ export function AssistantMessage({
   children?: ReactNode;
 }) {
   return (
-    <Message align="start" aria-live="polite" aria-busy={streaming}>
+    <Message align="start">
       <MessageAvatar className="size-8 self-start text-muted-foreground">
         <Sparkles className="size-4" aria-hidden />
       </MessageAvatar>

@@ -14,18 +14,19 @@
   margin-left: 0.15em;
   vertical-align: text-bottom;
   background-color: currentColor;
-  animation: chat-caret-blink 1s steps(1) infinite;
+}
+
+/* Blinks only when the user has not asked for reduced motion (a steady caret otherwise).
+   Opting in avoids an override that would need a more specific selector to win. */
+@media (prefers-reduced-motion: no-preference) {
+  [data-streaming="true"] > :is(p, h3, h4):last-child::after,
+  [data-streaming="true"] > :is(ul, ol):last-child > li:last-child::after {
+    animation: chat-caret-blink 1s steps(1) infinite;
+  }
 }
 
 @keyframes chat-caret-blink {
   50% {
     opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  [data-streaming="true"] > *::after,
-  [data-streaming="true"] li::after {
-    animation: none;
   }
 }

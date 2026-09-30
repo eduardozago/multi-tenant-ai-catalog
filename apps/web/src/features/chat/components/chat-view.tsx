@@ -18,7 +18,7 @@ import {
 } from "@multi-tenant-ai-catalog/ui/components/message-scroller";
 import { Skeleton } from "@multi-tenant-ai-catalog/ui/components/skeleton";
 import { ArrowDown, MessageSquareOff, TriangleAlert } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/features/auth/hooks";
 import type { Product } from "@/features/products/api";
@@ -71,9 +71,12 @@ function ChatViewContent({
   onNewConversation: () => void;
 }) {
   const { user } = useSession();
-  const conversation = useConversation(conversationId);
   const chat = useChatStream(conversationId);
+  // Not `conversationId`: a conversation created here is shown before the URL has its id.
+  const viewId = chat.viewId;
+  const conversation = useConversation(viewId);
   const { scrollToEnd } = useMessageScroller();
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   // Same sheet as the catalog, read-only here (no actions): the product was cited by the
   // agent, and editing belongs to the catalog page.
   const [detail, setDetail] = useState<{ product: Product | null; open: boolean }>({ product: null, open: false });
@@ -82,13 +85,20 @@ function ChatViewContent({
   // Opening another conversation starts at its end, even if the previous one was scrolled up.
   useEffect(() => {
     scrollToEnd({ behavior: "auto" });
-  }, [conversationId, scrollToEnd]);
+  }, [viewId, scrollToEnd]);
 
   const send = async (message: string) => {
     // Sending is an explicit "take me to the answer", even from far up the history.
     scrollToEnd({ behavior: "smooth" });
     const id = await chat.send(message);
     if (id && conversationId === null) onConversationCreated(id);
+  };
+
+  // A suggestion unmounts with the empty state, which would drop keyboard focus on <body>.
+  // Not on touch screens, where focusing the textarea would pop the keyboard up.
+  const sendSuggestion = (message: string) => {
+    if (!window.matchMedia("(pointer: coarse)").matches) inputRef.current?.focus();
+    void send(message);
   };
 
   const retry = async () => {
@@ -99,9 +109,13 @@ function ChatViewContent({
 
   const streaming = chat.state.status === "streaming";
   const messages = conversation.data?.messages ?? [];
-  const loading = conversationId !== null && conversation.isPending;
-  const loadError = conversationId !== null && !conversation.data && conversation.isError;
-  const isEmpty = conversationId === null && chat.state.status === "idle";
+  const loading = viewId !== null && conversation.isPending;
+  // A failed refetch keeps the previous data, but a 404 is final: the conversation is
+  // gone or not this user's (e.g. the session changed in another tab). Other errors keep
+  // showing what was loaded.
+  const notFound = conversation.error instanceof ApiError && conversation.error.status === 404;
+  const loadError = viewId !== null && conversation.isError && (!conversation.data || notFound);
+  const isEmpty = viewId === null && chat.state.status === "idle";
 
   let body: ReactNode;
   if (loading) body = <ConversationSkeleton />;
@@ -115,13 +129,13 @@ function ChatViewContent({
       />
     );
   } else if (isEmpty && user) {
-    body = <ChatEmptyState userName={user.name} companyName={user.company.name} onPick={send} />;
+    body = <ChatEmptyState userName={user.name} companyName={user.company.name} onPick={sendSuggestion} />;
   } else {
     body = (
       <>
         {messages.map((message, index) => (
           // Messages are append-only and have no id: the index is stable within a conversation.
-          <MessageScrollerItem key={`${conversationId}-${index}`} messageId={`${conversationId}-${index}`}>
+          <MessageScrollerItem key={`${viewId}-${index}`} messageId={`${viewId}-${index}`}>
             <StoredMessage message={message} onOpenProduct={openProduct} />
           </MessageScrollerItem>
         ))}
@@ -134,7 +148,12 @@ function ChatViewContent({
     <div className="flex min-h-0 flex-1 flex-col">
       <MessageScroller className="flex-1">
         <MessageScrollerViewport aria-label="Mensagens">
-          <MessageScrollerContent className="mx-auto w-full max-w-3xl px-4 py-6">{body}</MessageScrollerContent>
+          {/* aria-live off: the log's implicit live region would read a whole conversation
+              out when it loads, and re-announce an answer when it moves into the cache.
+              Finished answers are announced once, by the status below. */}
+          <MessageScrollerContent aria-live="off" className="mx-auto w-full max-w-3xl px-4 py-6">
+            {body}
+          </MessageScrollerContent>
         </MessageScrollerViewport>
         <MessageScrollerButton
           size={streaming ? "sm" : "icon-sm"}
@@ -145,8 +164,13 @@ function ChatViewContent({
         </MessageScrollerButton>
       </MessageScroller>
 
+      <p role="status" className="sr-only">
+        {chat.state.lastReply && `Resposta do assistente: ${chat.state.lastReply}`}
+      </p>
+
       <div className="mx-auto w-full max-w-3xl shrink-0 px-4 pb-3">
         <Composer
+          inputRef={inputRef}
           streaming={streaming}
           disabled={loading || loadError}
           onSend={send}

@@ -2,7 +2,7 @@ import { Button } from "@multi-tenant-ai-catalog/ui/components/button";
 import { Textarea } from "@multi-tenant-ai-catalog/ui/components/textarea";
 import { cn } from "@multi-tenant-ai-catalog/ui/lib/utils";
 import { ArrowUp, Square } from "lucide-react";
-import { type FormEvent, type KeyboardEvent, useId, useLayoutEffect, useRef, useState } from "react";
+import { type FormEvent, type KeyboardEvent, type RefObject, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { MAX_MESSAGE_LENGTH } from "../api";
 
@@ -23,15 +23,19 @@ export function Composer({
   disabled = false,
   onSend,
   onStop,
+  inputRef,
 }: {
   streaming: boolean;
   /** No conversation to send to (loading, not found). */
   disabled?: boolean;
   onSend: (message: string) => void;
   onStop: () => void;
+  /** The textarea, for callers that move focus to it. */
+  inputRef?: RefObject<HTMLTextAreaElement | null>;
 }) {
   const [value, setValue] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const ownRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = inputRef ?? ownRef;
   const hintId = useId();
   const counterId = useId();
 
@@ -43,7 +47,7 @@ export function Composer({
     if (supportsFieldSizing || !textarea) return;
     textarea.style.height = "auto";
     textarea.style.height = `${textarea.scrollHeight}px`;
-  }, [value]);
+  }, [value, textareaRef]);
 
   const submit = () => {
     if (!canSend) return;
@@ -85,15 +89,20 @@ export function Composer({
           // 16px on phones: iOS zooms into any focused field with a smaller font.
           className="max-h-40 min-h-9 overflow-y-auto border-0 bg-transparent px-1.5 py-1.5 text-base shadow-none focus-visible:ring-0 md:text-sm dark:bg-transparent"
         />
-        {streaming ? (
-          <Button type="button" variant="outline" size="icon" onClick={onStop} aria-label="Parar resposta">
-            <Square className="fill-current" aria-hidden />
-          </Button>
-        ) : (
-          <Button type="submit" size="icon" disabled={!canSend} aria-label="Enviar mensagem">
-            <ArrowUp aria-hidden />
-          </Button>
-        )}
+        {/* One element for Send and Stop, and aria-disabled instead of disabled: a button
+            that unmounts or becomes disabled drops keyboard focus on <body>, which would
+            happen on Stop and whenever an answer finishes. submit() does the blocking. */}
+        <Button
+          type={streaming ? "button" : "submit"}
+          variant={streaming ? "outline" : "default"}
+          size="icon"
+          onClick={streaming ? onStop : undefined}
+          aria-disabled={!streaming && !canSend}
+          aria-label={streaming ? "Parar resposta" : "Enviar mensagem"}
+          className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+        >
+          {streaming ? <Square className="fill-current" aria-hidden /> : <ArrowUp aria-hidden />}
+        </Button>
       </div>
       <div className="flex min-h-4 items-center justify-between gap-2 px-1 text-xs text-muted-foreground">
         <span id={hintId} className="max-md:sr-only">
