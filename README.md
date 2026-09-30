@@ -72,6 +72,41 @@ curl -b cookies.txt -c cookies.txt -X POST http://localhost:3000/auth/logout \
   -H 'Content-Type: application/json'
 ```
 
+## Produtos
+
+Todas as rotas exigem o cookie de sessão e só enxergam produtos da empresa do token. Produto inexistente ou de outra empresa retorna 404 `PRODUCT_NOT_FOUND`; id malformado retorna 400. Erros seguem `{ error: { code, message, details? } }`.
+
+| Método | Rota | Acesso | Descrição |
+| --- | --- | --- | --- |
+| GET | `/products` | autenticado | Lista paginada, 200 `{ data, meta }` |
+| GET | `/products/categories` | autenticado | Categorias distintas da empresa, 200 `{ categories }` |
+| GET | `/products/:id` | autenticado | 200 `{ product }` |
+| POST | `/products` | admin | Cria, 201 `{ product }` |
+| PATCH | `/products/:id` | admin | Atualização parcial (ao menos um campo), 200 `{ product }` |
+| DELETE | `/products/:id` | admin | Exclusão física, 204 |
+
+Produto: `{ id, name, description, priceCents, category, imageUrl, createdAt, updatedAt }`. Preço em centavos inteiros (`18990` = R$ 189,90); `imageUrl` é `null` quando não há imagem. No POST: `name` (2–120), `description` (até 2000), `priceCents` (inteiro ≥ 0), `category` (2–60) e `imageUrl` opcional (http/https). No PATCH, `imageUrl: null` remove a imagem. `company_id` e campos desconhecidos no corpo são ignorados.
+
+Query params de `GET /products` (todos opcionais):
+
+| Param | Descrição |
+| --- | --- |
+| `search` | Trecho do nome ou da descrição, sem diferenciar maiúsculas (até 100 caracteres) |
+| `category` | Categoria exata |
+| `minPriceCents`, `maxPriceCents` | Faixa de preço inclusiva, em centavos |
+| `sort` | `newest` (padrão), `price_asc`, `price_desc`, `name_asc` |
+| `page` | Página, a partir de 1 (padrão 1) |
+| `limit` | Itens por página, 1 a 50 (padrão 12) |
+
+`meta` traz `{ page, limit, total, totalPages }`; uma página além do fim devolve `data: []`.
+
+```bash
+# rações até R$ 100, da mais barata para a mais cara (cookie do login acima)
+curl -b cookies.txt 'http://localhost:3000/products?search=ra%C3%A7%C3%A3o&maxPriceCents=10000&sort=price_asc&limit=5'
+```
+
+O seed cria 14 produtos para a Pet Feliz e 15 para a Volt Eletrônicos, com nomes parecidos nas duas ("Kit Presente", "Garrafa Térmica", "Kit Viagem") para demonstrar o isolamento no chat. Se o seu banco local foi criado antes desta versão, rode `pnpm db:seed` de novo: ele recria os índices (D-17).
+
 ## UI Customization
 
 React web apps in this stack share shadcn/ui primitives through `packages/ui`.
