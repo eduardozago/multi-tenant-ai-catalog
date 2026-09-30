@@ -211,3 +211,29 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Motivo: segue o contrato da API e reduz a perda de atualização ao caso de dois admins mudarem o mesmo campo.
 - Trade-offs: no mesmo campo, a última gravação ainda vence sem aviso.
 - Em produção: `If-Match` com versão do documento e 409 em conflito.
+
+## D-25: Provedor de LLM atrás de uma interface, SDK oficial da OpenAI
+- Status: aceita (detalha D-07)
+- Contexto: o agente precisa de um LLM real com tool calling, e o loop precisa ser testável sem rede nem chave de API.
+- Opções: LangChain, Vercel AI SDK, SDK oficial chamado direto atrás de uma interface própria.
+- Decisão: interface `LLMProvider` (`generate` e `stream`) com tipos neutros (blocos `text`, `tool_use`, `tool_result`); `OpenAIProvider` usa o SDK `openai` e só traduz. A tradução fica em funções puras (`openai.mapping.ts`), testadas sem rede. Erros do SDK (429, 5xx, timeout, rede, chave inválida) viram `LLMUnavailableError` (502 `LLM_UNAVAILABLE`); abort do cliente é repassado como está. Modelo e chave só no env, sem modelo padrão no código.
+- Motivo: o loop de tool calling é o que está sendo avaliado, então fica explícito no nosso código; frameworks escondem o loop e o formato das mensagens. Os testes usam um `FakeLLMProvider` roteirizado, que registra o que o modelo teria recebido.
+- Trade-offs: mapeamento de mensagens e streaming escritos à mão; trocar de provedor exige uma nova implementação (a interface já isola o resto).
+- Em produção: segundo provedor como fallback em 429/5xx, circuit breaker e métricas de erro por provedor.
+
+## D-26: Chat Completions em vez da Responses API
+- Status: aceita
+- Contexto: a OpenAI oferece duas APIs com tool calling; a Responses API pode guardar o histórico no servidor dela (`previous_response_id`).
+- Opções: Responses API com estado no provedor, Responses API sem estado, Chat Completions.
+- Decisão: Chat Completions. O histórico vive na nossa coleção de conversas, escopada por tenant e por usuário, e cada chamada envia as mensagens explicitamente.
+- Motivo: o modelo sem estado mapeia um para um no loop explícito (mensagem do assistente com `tool_calls`, uma mensagem `tool` por chamada); o histórico fica sob as nossas regras de isolamento, e não no provedor.
+- Trade-offs: cada iteração reenvia o histórico (mais tokens de entrada); recursos novos da OpenAI tendem a sair primeiro na Responses API.
+- Em produção: limitar o histórico por tokens (não por número de turnos) e avaliar prompt caching do provedor.
+
+## D-27: Schemas de tool em modo strict e validação com zod
+- Status: aceita
+- Contexto: argumentos de tool vêm do modelo e podem ser malformados ou manipulados via prompt injection.
+- Opções: JSON Schema sem strict e validação manual, strict sem validação própria, strict mais zod.
+- Decisão: tools declaradas com `strict: true` (todo campo em `required`, opcionais como tipos anuláveis, `additionalProperties: false` em todo objeto), geradas a partir do schema zod; o registry revalida com zod e trata `null` como "não informado". JSON inválido, input inválido ou tool desconhecida viram `{ error, details }` como resultado de tool com `isError`, nunca exceção.
+- Motivo: strict garante a forma dos argumentos; zod garante valores (faixas, tamanhos) e remove campos extras como `company_id`. O modelo recebe o erro e pode corrigir a chamada na próxima iteração.
+- Trade-offs: o modo strict não aceita parte do JSON Schema (ex.: `default`), então padrões são aplicados no código da tool.

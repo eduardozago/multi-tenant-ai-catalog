@@ -25,6 +25,11 @@ const envSchema = z.object({
       return Number(match[1]) * DURATION_UNITS[match[2] as keyof typeof DURATION_UNITS];
     }),
   CORS_ORIGIN: z.url(),
+  OPENAI_API_KEY: z.string().min(1),
+  // No default model in code: the model is a deployment choice (cost, latency, quality).
+  LLM_MODEL: z.string().min(1),
+  // LLM calls per chat message; bounds cost and latency when the model keeps calling tools.
+  AGENT_MAX_ITERATIONS: z.coerce.number().int().min(1).max(10).default(5),
 });
 
 export type Env = z.infer<typeof envSchema>;
