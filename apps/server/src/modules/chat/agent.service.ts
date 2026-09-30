@@ -150,7 +150,7 @@ export class AgentService {
     ctx: ToolContext,
     onEvent: AgentRunInput["onEvent"],
   ): Promise<ToolExecution> {
-    onEvent?.({ type: "tool_start", name: call.name, input: call.input });
+    onEvent?.({ type: "tool_start", name: call.name, input: this.tools.parseInput(call) });
     const execution = await this.tools.execute(call, ctx);
     onEvent?.({ type: "tool_end", ...summarize(call, execution) });
     return execution;
@@ -160,7 +160,7 @@ export class AgentService {
 function summarize(call: ToolUseBlock, execution: ToolExecution): ToolCallSummary {
   return {
     name: call.name,
-    input: call.input,
+    input: execution.input,
     ...(execution.error === undefined ? { resultCount: execution.resultCount } : { error: execution.error }),
   };
 }

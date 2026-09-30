@@ -11,6 +11,12 @@ import { type AgentTool, type CatalogReader, type ToolContext, ToolError } from 
 /** Outcome of one tool call: the block sent back to the model plus data for the UI and logs. */
 export type ToolExecution = {
   result: ToolResultBlock;
+  /**
+   * The input as validated by zod (unknown keys such as an invented company_id
+   * stripped), or null when it was invalid. This, never the model's raw arguments, is
+   * what the UI sees and the conversation stores.
+   */
+  input: unknown;
   /** Set on success. */
   resultCount?: number;
   /** Error code, set when the model receives a tool error. */
@@ -47,14 +53,22 @@ export class ToolRegistry {
     return this.toolSpecs;
   }
 
+  /** Validated input for a call, or null if it would be rejected. Used for `tool_start`. */
+  parseInput(call: ToolUseBlock): unknown {
+    if (call.parseError) return null;
+    const parsed = this.tools.get(call.name)?.inputSchema.safeParse(call.input);
+    return parsed?.success ? parsed.data : null;
+  }
+
   async execute(call: ToolUseBlock, ctx: ToolContext): Promise<ToolExecution> {
-    const failure = (error: string, details?: unknown): ToolExecution => ({
+    const failure = (error: string, details?: unknown, input: unknown = null): ToolExecution => ({
       result: {
         type: "tool_result",
         toolUseId: call.id,
         content: JSON.stringify(details === undefined ? { error } : { error, details }),
         isError: true,
       },
+      input,
       error,
       products: [],
     });
@@ -72,11 +86,13 @@ export class ToolRegistry {
       const output = await tool.execute(parsed.data, ctx);
       return {
         result: { type: "tool_result", toolUseId: call.id, content: JSON.stringify(output.content), isError: false },
+        input: parsed.data,
         resultCount: output.resultCount,
         products: output.products ?? [],
       };
     } catch (error) {
-      if (error instanceof ToolError) return failure(error.code, error.details);
+      // The input was valid (e.g. product_not_found): it is still worth showing.
+      if (error instanceof ToolError) return failure(error.code, error.details, parsed.data);
       // ProductRepository.search re-validates its filters (D-16); a rejection there is
       // still an input the model can fix.
       if (error instanceof ZodError) return failure("invalid_input", issuesOf(error));

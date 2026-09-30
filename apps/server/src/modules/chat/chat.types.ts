@@ -4,6 +4,7 @@
 /** One tool call as shown to the user ("searched products: 3 results"). */
 export type ToolCallSummary = {
   name: string;
+  /** Input after validation (unknown keys stripped); null when it was invalid. */
   input: unknown;
   resultCount?: number;
   error?: string;

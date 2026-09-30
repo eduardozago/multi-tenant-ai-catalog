@@ -60,11 +60,8 @@ describe("POST /chat", () => {
       reply: "Temos a Garrafa Térmica 500ml por R$ 59,90.",
       products: [expect.objectContaining({ id: bottleA.id, priceCents: 5990, imageUrl: bottleA.imageUrl })],
       toolCalls: [
-        {
-          name: "search_products",
-          input: expect.objectContaining({ query: "Garrafa Térmica" }),
-          resultCount: 1,
-        },
+        // The validated input: the injected company_id is not echoed back or stored.
+        { name: "search_products", input: { ...emptySearch, query: "Garrafa Térmica" }, resultCount: 1 },
       ],
     });
   });

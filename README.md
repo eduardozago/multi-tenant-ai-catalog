@@ -156,7 +156,7 @@ sequenceDiagram
     API-->>C: { conversationId, reply, products, toolCalls }
 ```
 
-`products` são os produtos devolvidos pelas tools durante a execução cujo nome aparece na resposta final (no máximo 6, na ordem em que são citados). Os cards da UI mostram, portanto, dados reais do banco, nunca texto gerado pelo modelo. `toolCalls` lista o que o agente consultou (`{ name, input, resultCount | error }`), para transparência.
+`products` são os produtos devolvidos pelas tools durante a execução cujo nome aparece na resposta final (no máximo 6, na ordem em que são citados). Os cards da UI mostram, portanto, dados reais do banco, nunca texto gerado pelo modelo. `toolCalls` lista o que o agente consultou (`{ name, input, resultCount | error }`), para transparência; `input` é o input já validado pelo zod (campos extras removidos) ou `null` se era inválido, nunca os argumentos crus do modelo.
 
 ### Tools
 
@@ -171,7 +171,7 @@ Cada produto enviado ao modelo tem só `id`, `name`, `category`, `price` (já fo
 ### Isolamento de tenant no agente
 
 - Nenhum schema de tool tem campo de empresa. O `companyId` vem do JWT (`req.auth`) e é passado a `execute(input, ctx)` pelo servidor; um teste garante que nenhum schema menciona "company".
-- Os schemas são estritos (`additionalProperties: false`), e o zod descarta campos extras: um `company_id` inventado pelo modelo (por prompt injection) nunca chega ao repository. Testes enviam `company_id` e `companyId` no input e verificam que o repository recebe o tenant do contexto.
+- Os schemas são estritos (`additionalProperties: false`), e o zod descarta campos extras: um `company_id` inventado pelo modelo (por prompt injection) nunca chega ao repository, nem é gravado ou devolvido em `toolCalls`. Testes enviam `company_id` e `companyId` no input e verificam que o repository recebe o tenant do contexto.
 - Por baixo, as tools usam os repositories com `companyId` obrigatório e o plugin `tenantScoped`, que falha em query sem `company_id` (D-05, D-09).
 - Id de produto de outra empresa devolve `product_not_found`, igual a um id inexistente.
 - Teste ponta a ponta: um usuário da empresa A pergunta por um nome de produto que existe nas duas empresas, e o resultado de tool que o modelo recebe contém só o produto (id e preço) da empresa A.

@@ -101,6 +101,8 @@ describe("tenant context", () => {
     const execution = await registry.execute(call("search_products", input), ctx);
 
     expect(execution.error).toBeUndefined();
+    expect(execution.input).toEqual(emptySearch);
+    expect(registry.parseInput(call("search_products", input))).toEqual(emptySearch);
     expect(repo.search).toHaveBeenCalledTimes(1);
     const [companyId, filters] = repo.search.mock.calls[0]!;
     expect(companyId).toBe(COMPANY_A);
@@ -239,6 +241,7 @@ describe("tool errors instead of exceptions", () => {
     const execution = await registry.execute(call("search_products", { ...emptySearch, limit: "ten" }), ctx);
 
     expect(execution.error).toBe("invalid_input");
+    expect(execution.input).toBeNull();
     expect(execution.result.isError).toBe(true);
     expect(parsed(execution.result.content).details).toEqual([{ path: "limit", message: expect.any(String) }]);
     expect(repo.search).not.toHaveBeenCalled();
