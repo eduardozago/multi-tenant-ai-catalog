@@ -18,9 +18,11 @@ import {
 } from "@multi-tenant-ai-catalog/ui/components/message-scroller";
 import { Skeleton } from "@multi-tenant-ai-catalog/ui/components/skeleton";
 import { ArrowDown, MessageSquareOff, TriangleAlert } from "lucide-react";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { useSession } from "@/features/auth/hooks";
+import type { Product } from "@/features/products/api";
+import { ProductDetailSheet } from "@/features/products/components/product-detail-sheet";
 import { ApiError } from "@/lib/api-client";
 
 import type { ChatMessage } from "../api";
@@ -29,6 +31,8 @@ import { type ChatStreamState, useChatStream, useConversation } from "../hooks";
 import { ChatEmptyState } from "./chat-empty-state";
 import { AssistantMessage, ChatErrorNotice, StoppedNotice, UserMessage } from "./chat-message";
 import { Composer } from "./composer";
+import { ProductResults } from "./product-results";
+import { ToolActivityChips, ToolCallsDisclosure } from "./tool-activity";
 
 /**
  * One conversation: history, the answer being streamed, and the composer.
@@ -70,6 +74,10 @@ function ChatViewContent({
   const conversation = useConversation(conversationId);
   const chat = useChatStream(conversationId);
   const { scrollToEnd } = useMessageScroller();
+  // Same sheet as the catalog, read-only here (no actions): the product was cited by the
+  // agent, and editing belongs to the catalog page.
+  const [detail, setDetail] = useState<{ product: Product | null; open: boolean }>({ product: null, open: false });
+  const openProduct = (product: Product) => setDetail({ product, open: true });
 
   // Opening another conversation starts at its end, even if the previous one was scrolled up.
   useEffect(() => {
@@ -114,7 +122,7 @@ function ChatViewContent({
         {messages.map((message, index) => (
           // Messages are append-only and have no id: the index is stable within a conversation.
           <MessageScrollerItem key={`${conversationId}-${index}`} messageId={`${conversationId}-${index}`}>
-            <StoredMessage message={message} />
+            <StoredMessage message={message} onOpenProduct={openProduct} />
           </MessageScrollerItem>
         ))}
         <PendingExchange state={chat.state} onRetry={retry} />
@@ -145,13 +153,32 @@ function ChatViewContent({
           onStop={chat.stop}
         />
       </div>
+
+      <ProductDetailSheet
+        product={detail.product}
+        open={detail.open}
+        onOpenChange={(open) => setDetail((current) => ({ ...current, open }))}
+      />
     </div>
   );
 }
 
-function StoredMessage({ message }: { message: ChatMessage }) {
+function StoredMessage({
+  message,
+  onOpenProduct,
+}: {
+  message: ChatMessage;
+  onOpenProduct: (product: Product) => void;
+}) {
   if (message.role === "user") return <UserMessage content={message.content} />;
-  return <AssistantMessage text={message.content} />;
+  return (
+    <AssistantMessage
+      text={message.content}
+      activity={message.toolCalls && <ToolCallsDisclosure calls={message.toolCalls} />}
+    >
+      {message.products && <ProductResults products={message.products} onOpen={onOpenProduct} />}
+    </AssistantMessage>
+  );
 }
 
 /** The exchange not in the cache yet: streaming, failed or stopped (see useChatStream). */
@@ -167,7 +194,13 @@ function PendingExchange({ state, onRetry }: { state: ChatStreamState; onRetry: 
           // A partial answer that then failed is dropped: the server did not keep it either.
           <ChatErrorNotice error={state.error} onRetry={onRetry} />
         ) : (
-          <AssistantMessage text={state.text} streaming={state.status === "streaming"}>
+          <AssistantMessage
+            text={state.text}
+            streaming={state.status === "streaming"}
+            activity={<ToolActivityChips tools={state.tools} />}
+            // A running tool already says what is happening.
+            thinking={state.status === "streaming" && !state.text && !state.tools.some((t) => t.status === "running")}
+          >
             {state.status === "stopped" && <StoppedNotice onRetry={onRetry} />}
           </AssistantMessage>
         )}

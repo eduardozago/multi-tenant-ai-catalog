@@ -22,8 +22,8 @@ export function UserMessage({ content }: { content: string }) {
 }
 
 /**
- * The assistant's side of an exchange: avatar, answer and whatever goes with it
- * (`children`: notices now, tool activity and product cards later).
+ * The assistant's side of an exchange: avatar, `activity` (tool calls, shown first because
+ * they happened first), the answer, and `children` below it (product cards, notices).
  *
  * aria-live="polite" with aria-busy while streaming: screen readers wait for the complete
  * answer instead of reading every chunk as it arrives.
@@ -31,10 +31,15 @@ export function UserMessage({ content }: { content: string }) {
 export function AssistantMessage({
   text,
   streaming = false,
+  thinking = streaming && !text,
+  activity,
   children,
 }: {
   text: string;
   streaming?: boolean;
+  /** "Pensando…" placeholder; by default while streaming with no text yet. */
+  thinking?: boolean;
+  activity?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -44,10 +49,11 @@ export function AssistantMessage({
       </MessageAvatar>
       <MessageContent className="gap-3 pt-1">
         <span className="sr-only">Assistente:</span>
+        {activity}
         {text ? (
           <Markdown streaming={streaming}>{text}</Markdown>
         ) : (
-          streaming && <p className="text-sm text-muted-foreground motion-safe:animate-pulse">Pensando…</p>
+          thinking && <p className="text-sm text-muted-foreground motion-safe:animate-pulse">Pensando…</p>
         )}
         {children}
       </MessageContent>
