@@ -47,3 +47,27 @@ export function parseBRLToCents(input: string): number | null {
   const result = Number(digits);
   return Number.isSafeInteger(result) ? result : null;
 }
+
+const relative = new Intl.RelativeTimeFormat("pt-BR", { numeric: "auto" });
+const shortDate = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short" });
+const shortDateWithYear = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric" });
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/**
+ * ISO date → "agora", "há 5 minutos", "há 3 horas", "ontem", "há 4 dias", then a short
+ * date ("12 de set.", with the year when it is not the current one). Computed at render:
+ * a list left open for hours shows stale labels until its next refetch, which is fine
+ * for a history sidebar.
+ */
+export function formatRelativeDate(iso: string, now: number = Date.now()): string {
+  const date = new Date(iso);
+  const diff = now - date.getTime();
+  if (diff < MINUTE) return "agora";
+  if (diff < HOUR) return relative.format(-Math.floor(diff / MINUTE), "minute");
+  if (diff < DAY) return relative.format(-Math.floor(diff / HOUR), "hour");
+  if (diff < 7 * DAY) return relative.format(-Math.floor(diff / DAY), "day");
+  return date.getFullYear() === new Date(now).getFullYear() ? shortDate.format(date) : shortDateWithYear.format(date);
+}
