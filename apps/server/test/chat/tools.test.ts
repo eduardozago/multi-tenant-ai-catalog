@@ -280,9 +280,10 @@ describe("tool errors instead of exceptions", () => {
 describe("isolation against the real repository", () => {
   it("a tenant A context never sees tenant B products, even when the model asks for them", async () => {
     const products = new ProductRepository();
-    const shared = { description: "", category: "Garrafas", createdBy: ctx.userId };
-    const mine = await products.create(COMPANY_A, { ...shared, name: "Garrafa Térmica A", priceCents: 1000 });
-    const theirs = await products.create(COMPANY_B, { ...shared, name: "Garrafa Térmica B", priceCents: 2000 });
+    // Same name in both tenants; different price and category, so any leak is visible.
+    const shared = { name: "Garrafa Térmica", description: "", createdBy: ctx.userId };
+    const mine = await products.create(COMPANY_A, { ...shared, category: "Garrafas", priceCents: 1000 });
+    const theirs = await products.create(COMPANY_B, { ...shared, category: "Eletrônicos", priceCents: 2000 });
     const realRegistry = createCatalogToolRegistry(products);
 
     const search = await realRegistry.execute(
@@ -294,6 +295,7 @@ describe("isolation against the real repository", () => {
 
     expect(search.products.map((p) => p.id)).toEqual([mine.id]);
     expect(search.result.content).not.toContain(theirs.id);
+    expect(search.result.content).not.toContain("R$ 20,00");
     expect(details.error).toBe("product_not_found");
     expect(parsed(categories.result.content)).toEqual({ categories: ["Garrafas"] });
   });
