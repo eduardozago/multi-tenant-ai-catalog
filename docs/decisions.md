@@ -245,3 +245,12 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Decisão: `execute` devolve `content` (projeção enviada ao modelo: id, nome, categoria, preço em BRL e em centavos, descrição truncada em ~200 caracteres) e `products` (DTO completo, só para a resposta HTTP). JSON inválido, input inválido, tool desconhecida e `product_not_found` voltam ao modelo como erro de tool; qualquer outra exceção é relançada e vira 500 logado. Id malformado e id de outro tenant dão o mesmo `product_not_found`.
 - Motivo: menos tokens sem uma segunda query; o modelo corrige o que pode corrigir, e uma queda do banco não vira "não encontrei produtos".
 - Trade-offs: dois formatos de produto no módulo de chat; a resposta do chat falha inteira se o banco cair no meio do loop.
+
+## D-29: Histórico do chat no servidor, privado ao dono da conversa
+- Status: aceita
+- Contexto: o agente precisa do contexto das mensagens anteriores, e o histórico influencia o que o modelo responde.
+- Opções: cliente envia o histórico a cada requisição; histórico no provedor (Responses API); histórico no nosso banco.
+- Decisão: coleção `conversations` com `tenantScoped` e `userId`; toda leitura e escrita filtra `{ _id, company_id, userId }`, então outro usuário da mesma empresa ou de outra empresa recebe 404. O cliente envia só `message` e `conversationId`. Cada pergunta leva ao modelo as últimas 10 mensagens de texto (sem as tool calls antigas: o modelo consulta de novo). A troca (pergunta e resposta) só é gravada depois que o agente termina; em falha, nada é gravado. Rate limit de 20 mensagens/min por usuário, não por IP.
+- Motivo: o cliente não consegue forjar mensagens de assistente ou resultados de tool para manipular o modelo; conversas não vazam entre usuários do mesmo tenant; preços antigos de respostas passadas não competem com os atuais.
+- Trade-offs: o documento da conversa cresce sem limite (mensagens embutidas); os produtos da resposta são um snapshot e podem ficar desatualizados na tela; o limite por usuário é em memória.
+- Em produção: janela de histórico por tokens com resumo das mensagens antigas, mensagens em coleção própria ou limite por conversa, rate limit e cota de tokens por tenant com store compartilhado (Redis).

@@ -2,6 +2,7 @@ import type { ErrorRequestHandler, RequestHandler } from "express";
 import { ZodError } from "zod";
 
 import { AppError, NotFoundError } from "../errors";
+import { logger } from "../logger";
 
 type ErrorBody = { error: { code: string; message: string; details?: unknown } };
 
@@ -26,6 +27,11 @@ export const notFoundHandler: RequestHandler = (req) => {
 
 export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
   if (err instanceof AppError) {
+    // 5xx AppErrors are upstream failures (LLM provider): the client gets the safe
+    // message, the log gets the cause.
+    if (err.status >= 500) {
+      logger.error("app_error", { code: err.code, cause: err.cause instanceof Error ? err.cause.message : undefined });
+    }
     res.status(err.status).json(body(err.code, err.message, err.details));
     return;
   }

@@ -8,8 +8,12 @@ import type { ProductDto } from "../src/modules/products/product.dto";
 export const PASSWORD = "password123";
 
 export function createTestApp(options: AppOptions = {}): Express {
-  // High limit so the suite is not throttled; the rate limit has its own test.
-  return createApp({ credentialsRateLimit: { windowMs: 60_000, limit: 1000 }, ...options });
+  // High limits so the suite is not throttled; the rate limits have their own tests.
+  return createApp({
+    credentialsRateLimit: { windowMs: 60_000, limit: 1000 },
+    chatRateLimit: { windowMs: 60_000, limit: 1000 },
+    ...options,
+  });
 }
 
 /** Returns the `access_token=...` pair from a response, ready for a Cookie header. */
