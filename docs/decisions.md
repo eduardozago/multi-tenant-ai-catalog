@@ -133,3 +133,20 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Motivo: nenhum outro dado referencia produtos (sem pedidos), e soft delete obrigaria todo repository e toda tool do agente a filtrar `deletedAt`, um filtro a mais para esquecer.
 - Trade-offs: sem desfazer nem histórico de quem apagou o quê.
 - Em produção: soft delete aplicado por plugin (como o `tenantScoped`), log de auditoria por tenant (quem, quando, antes/depois) e expurgo após o prazo de retenção.
+
+## D-16: Busca de produtos por regex escapada
+- Status: aceita
+- Contexto: `GET /products?search=` e as tools do agente buscam por trechos do nome ou da descrição ("ração" deve achar "Ração Premium 15kg").
+- Opções: regex case-insensitive, text index do MongoDB, Atlas Search.
+- Decisão: regex com flag `i` em `name` e `description`, montada só depois de `escapeRegex` (entrada tratada como texto literal); `search` limitado a 100 caracteres. Mesmo método (`ProductRepository.search`) atende a API e o agente, com `limit` limitado a 50 também no repository.
+- Motivo: casa trechos e prefixos, que o text index não faz (ele casa palavras inteiras com stemming); nesta escala (dezenas de produtos por tenant, sempre filtrados por `company_id`) o scan é barato. Sem escape, `.*` ampliaria a busca e padrões como `(a+)+$` causariam backtracking catastrófico.
+- Trade-offs: regex sem âncora não usa índice; sem ranking por relevância; acentos contam ("racao" não acha "ração").
+- Em produção: Atlas Search com analyzer pt-BR (acentos, stemming, fuzzy e relevância) ou text index; para o agente, busca semântica com embeddings.
+
+## D-17: Ordenação por nome com collation pt
+- Status: aceita
+- Contexto: ordenação binária põe "Água" depois de "Zíper" e maiúsculas antes de minúsculas.
+- Opções: ordenação binária, campo `nameSort` normalizado, collation `{ locale: "pt" }`.
+- Decisão: `sort=name_asc` usa collation pt, e o índice `{ company_id, name }` é criado com a mesma collation.
+- Motivo: ordem correta em português sem campo extra; o MongoDB só usa um índice para ordenar quando a collation da query é igual à do índice.
+- Trade-offs: só `name_asc` usa collation; filtros de igualdade (categoria) continuam sensíveis a maiúsculas (D-14).

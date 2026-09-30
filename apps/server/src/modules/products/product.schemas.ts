@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { objectIdSchema } from "../../shared/validation";
+import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PRODUCT_SORTS } from "./product.repository";
 
 const imageUrlSchema = z.url({ protocol: /^https?$/, error: "Must be an http or https URL" }).max(2048);
 
@@ -23,6 +24,30 @@ export const updateProductBodySchema = createProductBodySchema
 
 export const productParamsSchema = z.object({ id: objectIdSchema });
 
+// Query strings arrive as strings; `?search=` (empty) means "no filter", not "match empty".
+const blankToUndefined = (value: unknown) =>
+  typeof value === "string" && value.trim() === "" ? undefined : value;
+
+const optionalText = (max: number) => z.preprocess(blankToUndefined, z.string().trim().max(max).optional());
+const optionalCents = z.preprocess(blankToUndefined, z.coerce.number().int().min(0).optional());
+
+// A repeated param (?search=a&search=b) arrives as an array and fails z.string(): 400.
+export const listProductsQuerySchema = z
+  .object({
+    search: optionalText(100),
+    category: optionalText(60),
+    minPriceCents: optionalCents,
+    maxPriceCents: optionalCents,
+    sort: z.enum(PRODUCT_SORTS).default("newest"),
+    page: z.coerce.number().int().min(1).default(1),
+    limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
+  })
+  .refine(
+    (q) => q.minPriceCents === undefined || q.maxPriceCents === undefined || q.minPriceCents <= q.maxPriceCents,
+    { message: "minPriceCents must be less than or equal to maxPriceCents", path: ["minPriceCents"] },
+  );
+
 export type CreateProductInput = z.infer<typeof createProductBodySchema>;
 export type UpdateProductInput = z.infer<typeof updateProductBodySchema>;
 export type ProductParams = z.infer<typeof productParamsSchema>;
+export type ListProductsQuery = z.infer<typeof listProductsQuerySchema>;

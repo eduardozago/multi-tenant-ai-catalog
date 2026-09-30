@@ -2,7 +2,12 @@ import type { Request, Response } from "express";
 
 import { getContext } from "../../shared/context";
 import type { Product } from "./product.repository";
-import type { CreateProductInput, ProductParams, UpdateProductInput } from "./product.schemas";
+import type {
+  CreateProductInput,
+  ListProductsQuery,
+  ProductParams,
+  UpdateProductInput,
+} from "./product.schemas";
 import type { ProductService } from "./product.service";
 
 export type ProductDto = {
@@ -32,6 +37,12 @@ export function toProductDto(product: Product): ProductDto {
 
 export class ProductController {
   constructor(private readonly products: ProductService) {}
+
+  list = async (req: Request, res: Response) => {
+    const result = await this.products.list(getContext(req), req.validated.query as ListProductsQuery);
+    const { items, ...meta } = result;
+    res.status(200).json({ data: items.map(toProductDto), meta });
+  };
 
   get = async (req: Request, res: Response) => {
     const { id } = req.validated.params as ProductParams;

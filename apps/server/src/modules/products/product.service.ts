@@ -1,7 +1,15 @@
 import type { RequestContext } from "../../shared/context";
 import { NotFoundError } from "../../shared/errors";
-import type { Product, ProductRepository } from "./product.repository";
+import type { Product, ProductRepository, ProductSearchFilters } from "./product.repository";
 import type { CreateProductInput, UpdateProductInput } from "./product.schemas";
+
+export type ProductPage = {
+  items: Product[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
 
 // Same error for "does not exist" and "belongs to another company": a 403 would
 // confirm that the id exists in some other tenant.
@@ -9,6 +17,11 @@ const productNotFound = () => new NotFoundError("Product not found", "PRODUCT_NO
 
 export class ProductService {
   constructor(private readonly products: ProductRepository) {}
+
+  async list(ctx: RequestContext, filters: ProductSearchFilters): Promise<ProductPage> {
+    const { items, total, page, limit } = await this.products.search(ctx.companyId, filters);
+    return { items, page, limit, total, totalPages: Math.ceil(total / limit) };
+  }
 
   async getById(ctx: RequestContext, productId: string): Promise<Product> {
     const product = await this.products.findById(ctx.companyId, productId);

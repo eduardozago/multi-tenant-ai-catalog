@@ -43,6 +43,9 @@ productSchema.plugin(tenantScoped);
 // Every index starts with company_id: all queries are per tenant.
 productSchema.index({ company_id: 1, createdAt: -1 }); // default listing (newest)
 productSchema.index({ company_id: 1, category: 1 }); // category filter and distinct
-productSchema.index({ company_id: 1, name: 1 }); // name_asc sort
+// name_asc sorts with pt collation so "Água" comes before "Bola", not after "Zíper".
+// A query only uses this index for sorting when it passes the same collation.
+export const NAME_COLLATION = { locale: "pt" } as const;
+productSchema.index({ company_id: 1, name: 1 }, { collation: NAME_COLLATION });
 
 export const ProductModel = model<ProductDocument>("Product", productSchema);
