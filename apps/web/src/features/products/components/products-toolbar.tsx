@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@multi-tenant-ai-catalog/ui/components/select";
 import { Search, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useCategories } from "../hooks";
 import { DEFAULT_SORT, PRODUCT_SORTS, type ProductSearch, SORT_LABELS } from "../schemas";
@@ -53,7 +53,8 @@ export function ProductsToolbar({
 
 /**
  * Local text for instant typing; the URL (and the request) follows 300ms after the last
- * keystroke. `replace` keeps one history entry per search instead of one per letter.
+ * keystroke. Every commit replaces the history entry, so Back leaves the catalog instead of
+ * stepping through each intermediate search term.
  */
 function SearchInput({
   value,
@@ -63,6 +64,10 @@ function SearchInput({
   onCommit: (value: string | undefined) => void;
 }) {
   const [text, setText] = useState(value ?? "");
+  // Latest callback in a ref: the timer depends only on the text, so a parent re-render
+  // (a fetch landing mid-typing) does not restart the 300ms wait.
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
 
   // Follow the URL when it changes from outside (Limpar filtros, back button). Compared
   // trimmed, because the URL drops the trailing space the user is still typing.
@@ -73,9 +78,9 @@ function SearchInput({
   useEffect(() => {
     const next = text.trim() || undefined;
     if (next === value) return;
-    const timeout = setTimeout(() => onCommit(next), SEARCH_DEBOUNCE_MS);
+    const timeout = setTimeout(() => onCommitRef.current(next), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(timeout);
-  }, [text, value, onCommit]);
+  }, [text, value]);
 
   return (
     <InputGroup className="sm:max-w-xs sm:flex-1">

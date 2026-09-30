@@ -2,7 +2,7 @@ import { Alert, AlertDescription, AlertTitle } from "@multi-tenant-ai-catalog/ui
 import { Button } from "@multi-tenant-ai-catalog/ui/components/button";
 import { cn } from "@multi-tenant-ai-catalog/ui/lib/utils";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Eye, Plus } from "lucide-react";
+import { AlertCircle, Eye, Plus } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { RequirePermission } from "@/components/forbidden-state";
@@ -23,6 +23,7 @@ import { ProductsPagination } from "@/features/products/components/products-pagi
 import { type FiltersPatch, ProductsToolbar } from "@/features/products/components/products-toolbar";
 import { useProducts } from "@/features/products/hooks";
 import { productSearchSchema } from "@/features/products/schemas";
+import { getErrorMessage } from "@/lib/form-errors";
 import { Can, usePermission } from "@/lib/permissions";
 
 export const Route = createFileRoute("/_app/products")({
@@ -79,7 +80,6 @@ function ProductsPage() {
     setForm((current) => ({ product, open: true, key: current.key + 1 }));
   };
 
-  // Stable, so the debounced search effect in the toolbar is not restarted on every render.
   const changeFilters = useCallback(
     (patch: FiltersPatch, options?: { replace?: boolean }) =>
       navigate({
@@ -115,8 +115,13 @@ function ProductsPage() {
     if (detail.product?.id === deleted.id) setDetail((current) => ({ ...current, open: false }));
     // The last card of a page is gone: step back now instead of flashing an empty page
     // until the refetch lands (the clamp effect above would get there, one render later).
-    if (products.data?.data.length === 1 && page > 1) {
-      void navigate({ search: (prev) => ({ ...prev, page: page - 1 > 1 ? page - 1 : undefined }) });
+    // Not with placeholder data: that is the previous page's list, not the one on screen.
+    // `replace`, so Back does not return to the page that no longer exists.
+    if (!products.isPlaceholderData && products.data?.data.length === 1 && page > 1) {
+      void navigate({
+        search: (prev) => ({ ...prev, page: page - 1 > 1 ? page - 1 : undefined }),
+        replace: true,
+      });
     }
   };
 
@@ -151,9 +156,29 @@ function ProductsPage() {
 
       {!isEmptyCatalog && <ProductsToolbar filters={search} onChange={changeFilters} onClear={clearFilters} />}
 
+      {/* A failed background refetch keeps the last data: warn above it instead of
+          replacing a working grid with the full error state. */}
+      {products.isError && products.data && (
+        <Alert variant="destructive">
+          <AlertCircle aria-hidden />
+          <AlertTitle>Não foi possível atualizar os produtos</AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-2">
+            {getErrorMessage(products.error)}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => products.refetch()}
+              disabled={products.isRefetching}
+            >
+              Tentar novamente
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {products.isPending ? (
         <ProductGridSkeleton />
-      ) : products.isError ? (
+      ) : !products.data ? (
         <CatalogError
           error={products.error}
           onRetry={() => products.refetch()}

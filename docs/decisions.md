@@ -185,3 +185,29 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Decisão: `['products', 'list', filters]`, `['products', 'detail', id]`, `['products', 'categories']`. Toda mutação invalida `['products']`. A exclusão remove antes o detalhe do produto excluído, para que um painel aberto não busque de novo um recurso que retornaria 404.
 - Motivo: um único prefixo invalida tudo o que uma escrita pode afetar (novo total, categoria nova, nome alterado), e o segundo segmento evita que uma lista com `filters` colida com um detalhe.
 - Trade-offs: invalidar o prefixo inteiro marca como obsoletas todas as páginas em cache; só as que estão na tela são buscadas de novo na hora, as outras quando voltarem a ser exibidas, mesmo que a escrita não as tenha afetado.
+
+## D-22: Filtros do catálogo na URL
+- Status: aceita
+- Contexto: busca, categoria, ordenação e página do catálogo precisam sobreviver a um refresh e poder ser compartilhadas (`/products?category=Rações&page=2`).
+- Opções: estado local do componente; `localStorage`; search params da rota.
+- Decisão: search params validados por `productSearchSchema` no `validateSearch` da rota. Valores inválidos caem no padrão via `.catch` (nunca uma página de erro), e padrões (`sort=newest`, `page=1`) ficam fora da URL. Qualquer filtro novo volta para a página 1; a busca é aplicada 300ms após a última tecla e substitui a entrada do histórico em vez de criar uma por letra. Uma página além da última (link antigo, produtos excluídos) é corrigida para a última existente.
+- Motivo: a URL é a única fonte do estado do filtro, então refresh, voltar/avançar e links compartilhados funcionam sem sincronização extra, e a chave de query deriva direto dela.
+- Trade-offs: como toda busca substitui a entrada do histórico, "voltar" a partir de uma busca sai do catálogo em vez de voltar à lista sem filtro.
+
+## D-23: Categoria normalizada para a grafia existente (só no cliente)
+- Status: aceita
+- Contexto: categoria é texto livre no servidor; "Rações", "rações" e "Racoes" virariam três categorias no filtro e nas respostas do agente.
+- Opções: coleção de categorias com id; normalização no servidor (collation/lowercase); sugestão e normalização no formulário.
+- Decisão: o combobox do formulário sugere as categorias existentes e, ao confirmar, troca um valor igual a uma existente ignorando caixa e acento (`localeCompare` com `sensitivity: "base"`) pela grafia existente. Um nome realmente novo é criado com "Criar «x»".
+- Motivo: resolve o caso comum (o admin digita uma categoria que já existe) sem mudar o modelo de dados nem a API perto da entrega.
+- Trade-offs: a regra vale só para o web; a API e o seed ainda aceitam quase-duplicatas.
+- Em produção: normalizar no servidor (índice com collation pt de força 1) ou categorias como entidade própria.
+
+## D-24: Edição envia só os campos alterados
+- Status: aceita
+- Contexto: `PATCH /products/:id` trata campo omitido como "não alterar". Enviar o formulário inteiro sobrescreve com valores antigos o que outro admin mudou em outro campo enquanto o formulário estava aberto.
+- Opções: enviar tudo; enviar só os campos alterados (`dirtyFields` do react-hook-form); controle de concorrência otimista (versão/`updatedAt`).
+- Decisão: o PATCH contém só os campos alterados; `imageUrl: null` só quando o campo de imagem foi esvaziado. Sem alterações, o formulário fecha sem requisição (o servidor rejeitaria um PATCH vazio).
+- Motivo: segue o contrato da API e reduz a perda de atualização ao caso de dois admins mudarem o mesmo campo.
+- Trade-offs: no mesmo campo, a última gravação ainda vence sem aviso.
+- Em produção: `If-Match` com versão do documento e 409 em conflito.

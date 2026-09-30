@@ -11,6 +11,8 @@ import {
 } from "@multi-tenant-ai-catalog/ui/components/alert-dialog";
 import { Loader2, Trash2 } from "lucide-react";
 
+import { ApiError } from "@/lib/api-client";
+
 import type { Product } from "../api";
 import { useDeleteProduct } from "../hooks";
 
@@ -33,12 +35,18 @@ export function DeleteProductDialog({
 
   const confirm = () => {
     if (!product) return;
-    // Success and error toasts come from the hook; the dialog stays open on error so
-    // the admin can retry or cancel.
+    // Success and error toasts come from the hook. On other errors the dialog stays open
+    // so the admin can retry or cancel.
+    const done = () => {
+      onOpenChange(false);
+      onDeleted(product);
+    };
     deleteProduct.mutate(product, {
-      onSuccess: () => {
-        onOpenChange(false);
-        onDeleted(product);
+      onSuccess: done,
+      // Someone else deleted it first: the outcome the admin wanted, so close like a success
+      // (the hook still toasts why, and refreshes the list).
+      onError: (error) => {
+        if (error instanceof ApiError && error.code === "PRODUCT_NOT_FOUND") done();
       },
     });
   };

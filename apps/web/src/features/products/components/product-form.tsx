@@ -21,10 +21,11 @@ import { AlertCircle, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 
+import { ApiError } from "@/lib/api-client";
 import { applyFieldErrors, getErrorMessage } from "@/lib/form-errors";
 import { centsToPriceInput, maskPriceInput } from "@/lib/format";
 
-import type { Product } from "../api";
+import type { Product, UpdateProductInput } from "../api";
 import { useCreateProduct, useUpdateProduct } from "../hooks";
 import {
   DESCRIPTION_MAX_LENGTH,
@@ -82,16 +83,23 @@ export function ProductForm({
     resolver: zodResolver(productFormSchema),
     defaultValues: product ? toFormValues(product) : EMPTY_FORM,
   });
-  const { errors, isDirty } = form.formState;
+  const { errors, isDirty, dirtyFields } = form.formState;
 
   useEffect(() => onDirtyChange(isDirty), [isDirty, onDirtyChange]);
   useEffect(() => onPendingChange(mutation.isPending), [mutation.isPending, onPendingChange]);
 
-  const description = form.watch("description");
+  // Trimmed, like the server and the schema, so trailing spaces do not turn the counter red.
+  const descriptionLength = form.watch("description").trim().length;
   const imageUrl = form.watch("imageUrl").trim();
 
   const onError = (error: unknown) => {
-    if (!applyFieldErrors(error, form.setError, FIELDS)) setBannerError(getErrorMessage(error));
+    if (applyFieldErrors(error, form.setError, FIELDS)) return;
+    // A validation error that matches no field (e.g. a bad id) has nothing to highlight,
+    // so "Revise os campos destacados" would point at nothing.
+    const isUnmappedValidation = error instanceof ApiError && error.code === "VALIDATION_ERROR";
+    setBannerError(
+      isUnmappedValidation ? "Não foi possível salvar. Tente novamente." : getErrorMessage(error),
+    );
   };
 
   const submit = form.handleSubmit((values) => {
@@ -103,11 +111,22 @@ export function ProductForm({
       category: values.category,
     };
     if (product) {
-      // `null` is how PATCH removes an image; omitting it would keep the old one.
-      updateProduct.mutate(
-        { id: product.id, input: { ...fields, imageUrl: values.imageUrl || null } },
-        { onSuccess: onSaved, onError },
-      );
+      // Only what this admin changed: omitted fields stay as they are on the server, so two
+      // admins editing different fields do not overwrite each other with stale values.
+      const input: UpdateProductInput = {};
+      if (dirtyFields.name) input.name = fields.name;
+      if (dirtyFields.description) input.description = fields.description;
+      if (dirtyFields.priceCents) input.priceCents = fields.priceCents;
+      if (dirtyFields.category) input.category = fields.category;
+      // `null` is how PATCH removes an image; omitting it keeps the current one.
+      if (dirtyFields.imageUrl) input.imageUrl = values.imageUrl || null;
+
+      // Nothing changed: the server would reject an empty PATCH, and there is nothing to save.
+      if (Object.keys(input).length === 0) {
+        onSaved();
+        return;
+      }
+      updateProduct.mutate({ id: product.id, input }, { onSuccess: onSaved, onError });
     } else {
       // Create has no "remove": an empty URL is simply not sent.
       createProduct.mutate(
@@ -154,10 +173,10 @@ export function ProductForm({
             id="product-description-count"
             className={cn(
               "text-right tabular-nums",
-              description.length > DESCRIPTION_MAX_LENGTH && "text-destructive",
+              descriptionLength > DESCRIPTION_MAX_LENGTH && "text-destructive",
             )}
           >
-            {description.length}/{DESCRIPTION_MAX_LENGTH}
+            {descriptionLength}/{DESCRIPTION_MAX_LENGTH}
           </FieldDescription>
           <FieldError errors={[errors.description]} />
         </Field>

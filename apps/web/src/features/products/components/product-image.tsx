@@ -29,6 +29,8 @@ export function ProductImage({
           alt={alt}
           loading="lazy"
           decoding="async"
+          // Admin-provided URL on any host: do not tell it which page the viewer is on.
+          referrerPolicy="no-referrer"
           className="size-full object-cover"
           onError={() => setFailedSrc(src)}
         />
