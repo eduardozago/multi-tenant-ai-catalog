@@ -5,6 +5,7 @@ import {
   fromOpenAIResponse,
   mapFinishReason,
   toOpenAIMessages,
+  toOpenAIRequest,
   toOpenAITools,
 } from "../../src/modules/chat/llm/openai.mapping";
 import type { Message } from "../../src/modules/chat/llm/types";
@@ -154,5 +155,27 @@ describe("mapFinishReason", () => {
     [null, "end_turn"],
   ])("%s → %s", (reason, expected) => {
     expect(mapFinishReason(reason)).toBe(expected);
+  });
+});
+
+describe("toOpenAIRequest", () => {
+  const tool = {
+    name: "list_categories",
+    description: "d",
+    inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+  };
+  const params = { model: "m", maxTokens: 100 };
+
+  it("sends tool_choice none only when tools are forbidden", () => {
+    const base = { system: "s", messages: [], tools: [tool] };
+    expect(toOpenAIRequest({ ...base, toolChoice: "none" }, params)).toMatchObject({ tool_choice: "none" });
+    expect(toOpenAIRequest(base, params)).not.toHaveProperty("tool_choice");
+    expect(toOpenAIRequest({ ...base, toolChoice: "auto" }, params)).not.toHaveProperty("tool_choice");
+  });
+
+  it("uses max_completion_tokens and omits tools when there are none", () => {
+    const request = toOpenAIRequest({ system: "s", messages: [], tools: [] }, params);
+    expect(request).toMatchObject({ model: "m", max_completion_tokens: 100 });
+    expect(request).not.toHaveProperty("tools");
   });
 });

@@ -111,7 +111,7 @@ O seed cria 14 produtos para a Pet Feliz e 15 para a Volt Eletrônicos, com nome
 
 O chat responde perguntas sobre o catálogo consultando o MongoDB por tool calling. O loop é código próprio (sem LangChain ou Vercel AI SDK) sobre o SDK oficial da OpenAI (Chat Completions), atrás da interface `LLMProvider` (D-07, D-25, D-26). Código em `apps/server/src/modules/chat`.
 
-Configure em `apps/server/.env`: `OPENAI_API_KEY`, `LLM_MODEL` (modelo com tool calling, ex.: `gpt-4.1-mini`; não há padrão no código) e, opcionalmente, `AGENT_MAX_ITERATIONS` (padrão 5). Os testes não precisam de chave: usam um `FakeLLMProvider` roteirizado.
+Configure em `apps/server/.env`: `OPENAI_API_KEY`, `LLM_MODEL` (modelo com tool calling, ex.: `gpt-4.1-mini`; não há padrão no código) e, opcionalmente, `AGENT_MAX_ITERATIONS` (padrão 5, de 2 a 10). Os testes não precisam de chave: usam um `FakeLLMProvider` roteirizado.
 
 | Método | Rota | Acesso | Descrição |
 | --- | --- | --- | --- |
@@ -120,7 +120,7 @@ Configure em `apps/server/.env`: `OPENAI_API_KEY`, `LLM_MODEL` (modelo com tool 
 | GET | `/chat/conversations` | autenticado | Conversas do próprio usuário, 200 `{ conversations: [{ id, title, updatedAt }] }` |
 | GET | `/chat/conversations/:id` | dono da conversa | 200 `{ conversation }` com as mensagens |
 
-`message` tem de 1 a 2000 caracteres. As duas rotas `POST` têm rate limit de 20 mensagens/minuto por usuário. Falha do provedor (429, 5xx, timeout) retorna 502 `LLM_UNAVAILABLE`; um modelo que não para de chamar tools, 502 `AGENT_ITERATION_LIMIT`.
+`message` tem de 1 a 2000 caracteres. As duas rotas `POST` têm rate limit de 20 mensagens/minuto por usuário. Falha do provedor (429, 5xx, timeout) retorna 502 `LLM_UNAVAILABLE`; na última iteração as tools ficam proibidas (`tool_choice: "none"`) para o modelo responder com o que já buscou, e se ele insistir o resultado é 502 `AGENT_ITERATION_LIMIT` (D-31).
 
 ### O loop
 
@@ -137,7 +137,7 @@ sequenceDiagram
     C->>API: POST /chat { message, conversationId? }
     API->>DB: conversa por { _id, company_id, userId } (404 se não for do usuário)
     API->>A: run(ctx do JWT, histórico, mensagem)
-    loop até end_turn ou AGENT_MAX_ITERATIONS
+    loop até end_turn (na última de AGENT_MAX_ITERATIONS, tool_choice none)
         A->>L: system prompt + mensagens + specs das tools
         L-->>A: texto ou tool_calls
         opt stopReason = tool_use

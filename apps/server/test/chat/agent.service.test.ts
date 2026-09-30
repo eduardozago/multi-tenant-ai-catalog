@@ -154,12 +154,34 @@ describe("AgentService.run", () => {
     ]);
   });
 
-  it("throws AgentIterationLimitError when the model keeps calling tools", async () => {
+  it("forbids tools on the last allowed call, so the model answers with what it has", async () => {
     const keepCalling = () => toolUseResponse({ id: "call", name: "list_categories", input: {} });
-    const { agent, provider } = setup([keepCalling, keepCalling, keepCalling, keepCalling], fakeRepository(), 3);
+    const { agent, provider } = setup(
+      [keepCalling, keepCalling, textResponse("Temos Brinquedos.")],
+      fakeRepository(),
+      3,
+    );
+
+    const result = await run(agent);
+
+    expect(result).toMatchObject({ reply: "Temos Brinquedos.", iterations: 3 });
+    expect(provider.requests.map((r) => r.toolChoice)).toEqual(["auto", "auto", "none"]);
+    // The tool results from earlier rounds are still in the last request.
+    expect(provider.requests[2]!.messages).toHaveLength(5);
+  });
+
+  it("throws AgentIterationLimitError, without running tools, if the model ignores the cap", async () => {
+    const listCategories = vi.fn(async () => ["Brinquedos"]);
+    const keepCalling = () => toolUseResponse({ id: "call", name: "list_categories", input: {} });
+    const { agent, provider } = setup(
+      [keepCalling, keepCalling, keepCalling, keepCalling],
+      fakeRepository({ listCategories }),
+      3,
+    );
 
     await expect(run(agent)).rejects.toBeInstanceOf(AgentIterationLimitError);
     expect(provider.requests).toHaveLength(3);
+    expect(listCategories).toHaveBeenCalledTimes(2);
   });
 
   it("only returns products whose name appears in the reply", async () => {

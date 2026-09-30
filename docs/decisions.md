@@ -263,3 +263,12 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Motivo: SSE é HTTP comum (cookies, CORS e o `requireJson` contra CSRF continuam valendo), unidirecional como o caso pede; `EventSource` não envia corpo nem permite `POST`, por isso o web lê o stream com `fetch`.
 - Trade-offs: depois do 200 não há como mudar o status; o cliente precisa tratar o evento `error`. Texto escrito pelo modelo antes de chamar tools também chega como `delta`; o texto final autoritativo é o do `done`. Sem heartbeat, um proxy com timeout curto pode fechar respostas muito lentas.
 - Em produção: heartbeat (comentário SSE a cada ~15s), `retry`/retomada por id de evento, e métricas de tempo até o primeiro token.
+
+## D-31: Limite de iterações do agente: última chamada sem tools, 502 se o modelo insistir
+- Status: aceita
+- Contexto: o loop precisa de um teto (custo e latência), mas lançar erro depois de executar as tools da última volta descarta dados já buscados e devolve 502 para uma pergunta que podia ser respondida.
+- Opções: lançar erro ao estourar o teto; na última chamada, não executar as tools pedidas; na última chamada, proibir tools (`tool_choice: "none"`) para forçar uma resposta em texto.
+- Decisão: `AGENT_MAX_ITERATIONS` (padrão 5, mínimo 2) conta chamadas ao LLM. A última vai com as tools declaradas (o histórico as referencia) e `tool_choice: "none"`, então o modelo responde com os resultados que já tem. Se mesmo assim ele pedir tools, nenhuma é executada e o agente lança `AgentIterationLimitError` (502 `AGENT_ITERATION_LIMIT`).
+- Motivo: o teto continua rígido, mas vira "responda com o que tem" em vez de "falhe". O status é 502 e não 4xx porque a requisição era válida, e não 500 porque o nosso servidor não falhou: a dependência não entregou uma resposta utilizável, o mesmo caso de `LLM_UNAVAILABLE`, com código próprio para distinguir nos logs.
+- Trade-offs: uma pergunta que precisaria de mais consultas recebe uma resposta parcial; com mínimo 2, o modelo sempre tem ao menos uma volta de tools.
+- Em produção: acompanhar a taxa de `outcome` por execução no `agent_run` e ajustar o teto por tenant ou por plano.

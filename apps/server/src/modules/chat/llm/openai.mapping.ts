@@ -122,7 +122,10 @@ export function toOpenAIRequest(request: LLMRequest, { model, maxTokens }: ChatR
   return {
     model,
     messages: toOpenAIMessages(request.system, request.messages),
-    ...(request.tools.length > 0 && { tools: toOpenAITools(request.tools) }),
+    ...(request.tools.length > 0 && {
+      tools: toOpenAITools(request.tools),
+      ...(request.toolChoice === "none" && { tool_choice: "none" as const }),
+    }),
     max_completion_tokens: maxTokens,
   };
 }

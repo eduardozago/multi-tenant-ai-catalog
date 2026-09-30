@@ -64,8 +64,9 @@ export function selectMentionedProducts(reply: string, candidates: ProductDto[])
 /**
  * The tool-calling loop. Each iteration sends the whole conversation to the model; if
  * it asks for tools, they run (in parallel, scoped to ctx.companyId) and their results
- * are appended for the next iteration. It ends when the model answers with text, or
- * throws after `maxIterations` LLM calls.
+ * are appended for the next iteration. It ends when the model answers with text. The
+ * last of `maxIterations` calls forbids tools; a model that still asks for them makes
+ * the run throw AgentIterationLimitError.
  */
 export class AgentService {
   constructor(
@@ -101,7 +102,15 @@ export class AgentService {
         // A client that went away stops the loop before the next paid call.
         signal?.throwIfAborted();
         iterations += 1;
-        const request: LLMRequest = { system, messages, tools: this.tools.specs() };
+        // Last allowed call: tools off, so the model answers with the data it already
+        // has instead of fetching more that the cap would then throw away (D-31).
+        const lastCall = iterations === this.options.maxIterations;
+        const request: LLMRequest = {
+          system,
+          messages,
+          tools: this.tools.specs(),
+          toolChoice: lastCall ? "none" : "auto",
+        };
         const response = stream
           ? await this.streamModel(request, signal, onEvent)
           : await this.provider.generate(request, { signal });
@@ -116,6 +125,9 @@ export class AgentService {
         }
 
         messages.push({ role: "assistant", content: response.content });
+        // The model ignored tool_choice "none": no tools run past the cap.
+        if (lastCall) break;
+
         const executions = await Promise.all(calls.map((call) => this.runTool(call, ctx, onEvent)));
 
         // One result per call, in the order of the calls: Promise.all keeps the order

@@ -45,6 +45,11 @@ export type LLMRequest = {
   system: string;
   messages: Message[];
   tools: ToolSpec[];
+  /**
+   * "none" keeps the tools declared (the history references them) but forbids new
+   * calls, forcing a text answer. Default "auto": the model decides.
+   */
+  toolChoice?: "auto" | "none";
 };
 
 export type LLMResponse = {
