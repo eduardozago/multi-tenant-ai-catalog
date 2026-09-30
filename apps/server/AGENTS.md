@@ -19,7 +19,7 @@ scripts/seed.ts
 ## Layer responsibilities
 
 - routes: path + middleware chain only (`authenticate`, `authorize`, `validate`, controller).
-- controller: reads validated input and `req.auth`, calls one service method, maps the result to HTTP. No business logic, no Mongoose.
+- controller: reads validated input and `req.auth`, calls one service method, maps the result to HTTP. No business logic, no Mongoose. Exception: a streaming (SSE) handler calls a `prepare` method before opening the stream and a `complete` method after, because the HTTP status cannot change once the stream is open (see D-30).
 - service: business rules. Receives a `RequestContext` (`{ userId, companyId, role }`) explicitly. Knows nothing about Express.
 - repository: the only layer that imports Mongoose models. `companyId` first parameter. Returns plain objects via `.lean()`.
 - model: Mongoose schema. Tenant-owned schemas apply `tenantScoped` and indexes that start with `company_id`.

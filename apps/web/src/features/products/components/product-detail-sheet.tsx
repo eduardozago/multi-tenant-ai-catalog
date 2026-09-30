@@ -25,6 +25,8 @@ const dateFormatter = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", tim
 /**
  * `product` is the list's copy and stays set while the sheet animates closed, so the
  * content does not blank out mid-transition; `open` alone controls visibility.
+ * Without `actions` the sheet is read-only (the chat opens it that way): edit and delete
+ * belong to the catalog page, which owns the form and the delete dialog.
  */
 export function ProductDetailSheet({
   product,
@@ -35,7 +37,7 @@ export function ProductDetailSheet({
   product: Product | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  actions: ProductActions;
+  actions?: ProductActions;
 }) {
   // Refreshes in the background (the list may be a few minutes old); disabled while closed.
   const detail = useProduct(open && product ? product.id : null, product ?? undefined);
@@ -78,18 +80,20 @@ export function ProductDetailSheet({
               </dl>
             </div>
 
-            <Can permission="products:write">
-              <SheetFooter className="flex-row border-t">
-                <Button variant="outline" className="flex-1" onClick={() => actions.onEdit(current)}>
-                  <Pencil aria-hidden />
-                  Editar
-                </Button>
-                <Button variant="destructive" className="flex-1" onClick={() => actions.onDelete(current)}>
-                  <Trash2 aria-hidden />
-                  Excluir
-                </Button>
-              </SheetFooter>
-            </Can>
+            {actions && (
+              <Can permission="products:write">
+                <SheetFooter className="flex-row border-t">
+                  <Button variant="outline" className="flex-1" onClick={() => actions.onEdit(current)}>
+                    <Pencil aria-hidden />
+                    Editar
+                  </Button>
+                  <Button variant="destructive" className="flex-1" onClick={() => actions.onDelete(current)}>
+                    <Trash2 aria-hidden />
+                    Excluir
+                  </Button>
+                </SheetFooter>
+              </Can>
+            )}
           </>
         )}
       </SheetContent>

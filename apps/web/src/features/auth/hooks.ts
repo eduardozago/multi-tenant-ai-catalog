@@ -13,7 +13,17 @@ export const sessionQueryKey = ["auth", "me"] as const;
  */
 export const sessionQueryOptions = queryOptions({
   queryKey: sessionQueryKey,
-  queryFn: me,
+  queryFn: async ({ client }) => {
+    const user = await me();
+    // The cookie now belongs to someone else (logout and login as another user in another
+    // tab): drop everything cached for the previous one before the new user is shown, as
+    // login does. Without this, a failed refetch keeps the previous user's data on screen.
+    const previous = client.getQueryData<AuthUser | null>(sessionQueryKey);
+    if (previous && user && (previous.id !== user.id || previous.company.id !== user.company.id)) {
+      client.removeQueries({ predicate: (query) => query.queryKey[0] !== sessionQueryKey[0] });
+    }
+    return user;
+  },
   staleTime: 0,
   retry: false,
 });

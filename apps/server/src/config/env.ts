@@ -25,6 +25,18 @@ const envSchema = z.object({
       return Number(match[1]) * DURATION_UNITS[match[2] as keyof typeof DURATION_UNITS];
     }),
   CORS_ORIGIN: z.url(),
+  OPENAI_API_KEY: z.string().min(1),
+  // No default model in code: the model is a deployment choice (cost, latency, quality).
+  LLM_MODEL: z.string().min(1),
+  // LLM calls per chat message; bounds cost and latency when the model keeps calling tools.
+  // Optional: sent only when set. Reasoning models may require "none" to use function
+  // tools on Chat Completions (D-25). An empty value counts as unset.
+  LLM_REASONING_EFFORT: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]).optional(),
+  ),
+  // At least 2: the last call forbids tools (D-31), so 1 would mean no tool calls at all.
+  AGENT_MAX_ITERATIONS: z.coerce.number().int().min(2).max(10).default(5),
 });
 
 export type Env = z.infer<typeof envSchema>;

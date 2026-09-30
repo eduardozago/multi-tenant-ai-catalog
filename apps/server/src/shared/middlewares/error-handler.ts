@@ -2,6 +2,7 @@ import type { ErrorRequestHandler, RequestHandler } from "express";
 import { ZodError } from "zod";
 
 import { AppError, NotFoundError } from "../errors";
+import { logger } from "../logger";
 
 type ErrorBody = { error: { code: string; message: string; details?: unknown } };
 
@@ -24,10 +25,21 @@ export const notFoundHandler: RequestHandler = (req) => {
   throw new NotFoundError("NOT_FOUND", `Route ${req.method} ${req.path} not found`);
 };
 
-export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+export type ErrorResponse = { status: number; body: ErrorBody };
+
+/**
+ * The single mapping from any thrown value to status + `{ error: { code, message, details? } }`.
+ * Used by the HTTP error handler and by the chat SSE stream, whose `error` event
+ * carries the same code and message a JSON response would.
+ */
+export function toErrorResponse(err: unknown): ErrorResponse {
   if (err instanceof AppError) {
-    res.status(err.status).json(body(err.code, err.message, err.details));
-    return;
+    // 5xx AppErrors are upstream failures (LLM provider): the client gets the safe
+    // message, the log gets the cause.
+    if (err.status >= 500) {
+      logger.error("app_error", { code: err.code, cause: err.cause instanceof Error ? err.cause.message : undefined });
+    }
+    return { status: err.status, body: body(err.code, err.message, err.details) };
   }
 
   if (err instanceof ZodError) {
@@ -35,23 +47,28 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
       path: issue.path.join("."),
       message: issue.message,
     }));
-    res.status(400).json(body("VALIDATION_ERROR", "Invalid request", details));
-    return;
+    return { status: 400, body: body("VALIDATION_ERROR", "Invalid request", details) };
   }
 
   // Fallback for unique indexes not translated by a repository.
   if (isDuplicateKeyError(err)) {
-    res.status(409).json(body("CONFLICT", "Resource already exists"));
-    return;
+    return { status: 409, body: body("CONFLICT", "Resource already exists") };
   }
 
   if (isHttpClientError(err)) {
     const code = err.type === "entity.parse.failed" ? "INVALID_JSON" : "BAD_REQUEST";
-    res.status(err.status).json(body(code, err.message));
-    return;
+    return { status: err.status, body: body(code, err.message) };
   }
 
-  // Unknown (including TenantScopeError): log the real error, return nothing internal.
-  console.error(err);
-  res.status(500).json(body("INTERNAL_ERROR", "Internal server error"));
+  // Unknown (including TenantScopeError): log what is needed to debug, return nothing
+  // internal. Not the whole object: Mongoose validation/cast errors carry the offending
+  // values (which can be a chat message) in their `errors`/`value` fields.
+  const error = err instanceof Error ? err : new Error(String(err));
+  logger.error("unhandled_error", { name: error.name, message: error.message, stack: error.stack });
+  return { status: 500, body: body("INTERNAL_ERROR", "Internal server error") };
+}
+
+export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+  const { status, body } = toErrorResponse(err);
+  res.status(status).json(body);
 };

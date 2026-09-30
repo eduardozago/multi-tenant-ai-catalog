@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { ConversationModel } from "../src/modules/chat/conversation.model";
 import { ProductModel } from "../src/modules/products/product.model";
 import { UserModel } from "../src/modules/users/user.model";
 import { UserRepository } from "../src/modules/users/user.repository";
@@ -141,6 +142,19 @@ describe("tenantScoped plugin", () => {
     ["deleteMany", () => UserModel.deleteMany({})],
     ["findOneAndDelete", () => UserModel.findOneAndDelete({})],
   ])("throws on %s without company_id", async (_name, run) => {
+    await expect(run()).rejects.toBeInstanceOf(TenantScopeError);
+  });
+
+  // Conversations are filtered by userId too, which must not count as a tenant filter.
+  it.each([
+    ["find by owner", () => ConversationModel.find({ userId: new Types.ObjectId() })],
+    ["findOne by id and owner", () => ConversationModel.findOne({ _id: new Types.ObjectId(), userId: new Types.ObjectId() })],
+    [
+      "updateOne $push",
+      () => ConversationModel.updateOne({ _id: new Types.ObjectId() }, { $push: { messages: { role: "user" } } }),
+    ],
+    ["deleteMany", () => ConversationModel.deleteMany({})],
+  ])("throws on Conversation %s without company_id", async (_name, run) => {
     await expect(run()).rejects.toBeInstanceOf(TenantScopeError);
   });
 
