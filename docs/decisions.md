@@ -106,3 +106,108 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Motivo: uma fonte só, sem sincronizar estado manualmente; limpar o cache no logout impede que dados de um tenant apareçam para a próxima sessão no mesmo browser. O mapa evita `role === 'admin'` espalhado e torna o modelo de permissões visível ao avaliador.
 - Trade-offs: o mapa é duplicado do servidor e pode divergir; ele só molda a UI, quem garante é o servidor. Uma chamada leve a `/auth/me` por navegação. Contas demo no login (flag `VITE_SHOW_DEMO_ACCOUNTS`) expõem credenciais do seed, aceitável só em demo.
 - Em produção: permissões vindas do servidor no payload de `/auth/me` (fonte única), flag de contas demo desligada, e refresh token silencioso antes de mandar o usuário ao login.
+
+## D-13: Preço em centavos inteiros
+- Status: aceita
+- Contexto: produtos têm preço, e o agente de IA filtra e compara preços com dados reais.
+- Opções: `Number` com decimais, `Decimal128`, inteiro em centavos.
+- Decisão: `priceCents` inteiro `>= 0`, validado com zod na borda e no schema Mongoose (`Number.isInteger`). A formatação em reais fica no web.
+- Motivo: ponto flutuante não representa a maioria dos valores decimais (`0.1 + 0.2 !== 0.3`); inteiros somam, comparam e ordenam sem erro e serializam em JSON sem conversão, ao contrário de `Decimal128`.
+- Trade-offs: a API expõe centavos, e todo cliente (incluindo o agente) precisa converter para exibir. Uma só moeda (BRL).
+- Em produção: moeda por empresa (ISO 4217) junto do valor, se houver clientes em outros países.
+
+## D-14: Categoria como string livre no produto
+- Status: aceita
+- Contexto: produtos são filtrados por categoria, e o web e o agente precisam da lista de categorias do tenant.
+- Opções: coleção `categories` por tenant com referência, string livre no produto.
+- Decisão: `category` string (trim, 2 a 60 caracteres) no produto; a lista vem de `distinct("category", { company_id })`, coberta pelo índice `{ company_id, category }`. O texto é gravado como digitado, sem normalizar maiúsculas.
+- Motivo: sem CRUD extra nem consistência entre coleções; uma categoria deixa de existir sozinha quando seu último produto é removido.
+- Trade-offs: "Brinquedos" e "brinquedos" viram categorias diferentes; renomear uma categoria exige atualizar vários produtos; sem metadados (ordem, ícone).
+- Em produção: coleção de categorias por tenant com slug único, ou collation case-insensitive (`strength: 2`) no índice e no distinct.
+
+## D-15: Exclusão física de produtos
+- Status: aceita
+- Contexto: `DELETE /products/:id` (só admin) precisa remover o produto do catálogo e das respostas do agente.
+- Opções: exclusão física, soft delete com `deletedAt`, soft delete + log de auditoria.
+- Decisão: `deleteOne({ _id, company_id })`, resposta 204; produto inexistente ou de outro tenant retorna 404 `PRODUCT_NOT_FOUND`.
+- Motivo: nenhum outro dado referencia produtos (sem pedidos), e soft delete obrigaria todo repository e toda tool do agente a filtrar `deletedAt`, um filtro a mais para esquecer.
+- Trade-offs: sem desfazer nem histórico de quem apagou o quê.
+- Em produção: soft delete aplicado por plugin (como o `tenantScoped`), log de auditoria por tenant (quem, quando, antes/depois) e expurgo após o prazo de retenção.
+
+## D-16: Busca de produtos por regex escapada
+- Status: aceita
+- Contexto: `GET /products?search=` e as tools do agente buscam por trechos do nome ou da descrição ("ração" deve achar "Ração Premium 15kg").
+- Opções: regex case-insensitive, text index do MongoDB, Atlas Search.
+- Decisão: regex com flag `i` em `name` e `description`, montada só depois de `escapeRegex` (entrada tratada como texto literal); `search` limitado a 100 caracteres. Mesmo método (`ProductRepository.search`) atende a API e o agente e revalida os filtros com zod (tipos estritos, sem coerção): NaN, objetos como `{ $ne: "x" }` e sorts desconhecidos são rejeitados antes da query, e `limit` acima de 50 é reduzido a 50.
+- Motivo: casa trechos e prefixos, que o text index não faz (ele casa palavras inteiras com stemming); nesta escala (dezenas de produtos por tenant, sempre filtrados por `company_id`) o scan é barato. Sem escape, `.*` ampliaria a busca e padrões como `(a+)+$` causariam backtracking catastrófico.
+- Trade-offs: regex sem âncora não usa índice; sem ranking por relevância; acentos contam ("racao" não acha "ração").
+- Em produção: Atlas Search com analyzer pt-BR (acentos, stemming, fuzzy e relevância) ou text index; para o agente, busca semântica com embeddings.
+
+## D-17: Ordenação por nome com collation pt
+- Status: aceita
+- Contexto: ordenação binária põe "Água" depois de "Zíper" e maiúsculas antes de minúsculas.
+- Opções: ordenação binária, campo `nameSort` normalizado, collation `{ locale: "pt" }`.
+- Decisão: `sort=name_asc` usa collation pt, e o índice `{ company_id, name }` é criado com a mesma collation.
+- Motivo: ordem correta em português sem campo extra; o MongoDB só usa um índice para ordenar quando a collation da query é igual à do índice.
+- Trade-offs: só `name_asc` usa collation; filtros de igualdade (categoria) continuam sensíveis a maiúsculas (D-14). Um banco criado antes da collation mantém o índice antigo, e o `autoIndex` falha em silêncio ao recriá-lo; o seed usa `syncIndexes()`, então basta rodar `pnpm db:seed`.
+
+## D-18: Envelope de listagem paginada `{ data, meta }` com offset
+- Status: aceita
+- Contexto: `GET /products` devolve uma página e o web precisa montar a paginação; os demais endpoints usam envelope nomeado (`{ product }`, `{ users }`, `{ categories }`).
+- Opções: array puro com headers (`X-Total-Count`), envelope nomeado (`{ products, total }`), `{ data, meta }`; paginação por offset ou por cursor.
+- Decisão: listas paginadas usam `{ data, meta: { page, limit, total, totalPages } }`; recursos únicos e listas curtas sem paginação seguem com envelope nomeado. Paginação por `page`/`limit` (máx. 50), com `countDocuments` e `find` em paralelo. `meta` é montado campo a campo no controller.
+- Motivo: o formato separa dados de metadados e é o mesmo para qualquer recurso paginado futuro; offset permite pular para uma página e mostrar o total, o que a UI de catálogo precisa.
+- Trade-offs: dois formatos de resposta na API (paginado e não paginado); offset fica caro em coleções grandes (`skip` percorre os documentos) e pode repetir ou pular itens se o catálogo mudar entre páginas; o `count` custa uma query a mais.
+- Em produção: paginação por cursor (`createdAt` + `_id`) para listas grandes ou infinitas, e contagem aproximada ou em cache.
+
+## D-19: Códigos de erro por recurso; validação do Mongoose como bug
+- Status: aceita
+- Contexto: o módulo de produtos é a referência para os próximos, e o cliente (web e agente) precisa distinguir erros sem ler a mensagem.
+- Opções: código genérico (`NOT_FOUND`), código por recurso (`PRODUCT_NOT_FOUND`); erro de validação do Mongoose como 400 ou como 500.
+- Decisão: erros de domínio levam código por recurso (`new NotFoundError("PRODUCT_NOT_FOUND", ...)`, código primeiro, como `ConflictError`). O contrato de entrada é o schema zod, que usa as mesmas regras do schema Mongoose (constantes compartilhadas em `product.constants.ts`); um `ValidationError` do Mongoose significa que as duas camadas divergiram e continua virando 500, logado.
+- Motivo: códigos estáveis por recurso deixam o web mostrar mensagens específicas; tratar a divergência como bug evita esconder uma regra que o zod deixou passar. Um teste cobre o caso que já divergiu (URL com espaço).
+- Trade-offs: se uma nova regra for adicionada só no Mongoose, o cliente vê 500 até a correção.
+- Em produção: alerta sobre `ValidationError` do Mongoose nos logs, ou teste que compara as regras do zod e do schema.
+
+## D-20: Preço digitado com máscara e convertido para centavos no cliente
+- Status: aceita
+- Contexto: a API recebe `priceCents` inteiro (D-13); o formulário do web precisa aceitar valores em reais no formato pt-BR sem introduzir ponto flutuante no payload.
+- Opções: `<input type="number">` em reais convertido com `* 100`; texto livre interpretado no submit; máscara "caixa registradora" (dígitos entram pela direita) sobre texto.
+- Decisão: máscara sobre texto (`maskPriceInput` em `lib/format.ts`), com "R$" como adorno fora do valor. O schema zod do formulário transforma o texto em centavos com `parseBRLToCents`, que trabalha só com a string de dígitos. A divisão por 100 existe apenas para exibir (`formatBRL`).
+- Motivo: `12.34 * 100` em float dá `1233.9999…`; operar na string elimina o arredondamento. A máscara sempre produz um valor bem formado, então o usuário não precisa saber se o separador é vírgula ou ponto.
+- Trade-offs: a máscara não permite posicionar o cursor no meio do número para editar um dígito; apagar é sempre a partir da direita.
+- Em produção: o mesmo, com testes unitários dos helpers (o web ainda não tem runner de testes).
+
+## D-21: Chaves de query hierárquicas para produtos
+- Status: aceita
+- Contexto: listagem paginada com filtros, detalhe e categorias são três caches que qualquer escrita pode deixar desatualizados.
+- Opções: chaves planas por recurso (`['products', filters]`, `['products', id]`); chaves hierárquicas.
+- Decisão: `['products', 'list', filters]`, `['products', 'detail', id]`, `['products', 'categories']`. Toda mutação invalida `['products']`. A exclusão remove antes o detalhe do produto excluído, para que um painel aberto não busque de novo um recurso que retornaria 404.
+- Motivo: um único prefixo invalida tudo o que uma escrita pode afetar (novo total, categoria nova, nome alterado), e o segundo segmento evita que uma lista com `filters` colida com um detalhe.
+- Trade-offs: invalidar o prefixo inteiro marca como obsoletas todas as páginas em cache; só as que estão na tela são buscadas de novo na hora, as outras quando voltarem a ser exibidas, mesmo que a escrita não as tenha afetado.
+
+## D-22: Filtros do catálogo na URL
+- Status: aceita
+- Contexto: busca, categoria, ordenação e página do catálogo precisam sobreviver a um refresh e poder ser compartilhadas (`/products?category=Rações&page=2`).
+- Opções: estado local do componente; `localStorage`; search params da rota.
+- Decisão: search params validados por `productSearchSchema` no `validateSearch` da rota. Valores inválidos caem no padrão via `.catch` (nunca uma página de erro), e padrões (`sort=newest`, `page=1`) ficam fora da URL. Qualquer filtro novo volta para a página 1; a busca é aplicada 300ms após a última tecla e substitui a entrada do histórico em vez de criar uma por letra. Uma página além da última (link antigo, produtos excluídos) é corrigida para a última existente.
+- Motivo: a URL é a única fonte do estado do filtro, então refresh, voltar/avançar e links compartilhados funcionam sem sincronização extra, e a chave de query deriva direto dela.
+- Trade-offs: como toda busca substitui a entrada do histórico, "voltar" a partir de uma busca sai do catálogo em vez de voltar à lista sem filtro.
+
+## D-23: Categoria normalizada para a grafia existente (só no cliente)
+- Status: aceita
+- Contexto: categoria é texto livre no servidor; "Rações", "rações" e "Racoes" virariam três categorias no filtro e nas respostas do agente.
+- Opções: coleção de categorias com id; normalização no servidor (collation/lowercase); sugestão e normalização no formulário.
+- Decisão: o combobox do formulário sugere as categorias existentes e, ao confirmar, troca um valor igual a uma existente ignorando caixa e acento (`localeCompare` com `sensitivity: "base"`) pela grafia existente. Um nome realmente novo é criado com "Criar «x»".
+- Motivo: resolve o caso comum (o admin digita uma categoria que já existe) sem mudar o modelo de dados nem a API perto da entrega.
+- Trade-offs: a regra vale só para o web; a API e o seed ainda aceitam quase-duplicatas.
+- Em produção: normalizar no servidor (índice com collation pt de força 1) ou categorias como entidade própria.
+
+## D-24: Edição envia só os campos alterados
+- Status: aceita
+- Contexto: `PATCH /products/:id` trata campo omitido como "não alterar". Enviar o formulário inteiro sobrescreve com valores antigos o que outro admin mudou em outro campo enquanto o formulário estava aberto.
+- Opções: enviar tudo; enviar só os campos alterados (`dirtyFields` do react-hook-form); controle de concorrência otimista (versão/`updatedAt`).
+- Decisão: o PATCH contém só os campos alterados; `imageUrl: null` só quando o campo de imagem foi esvaziado. Sem alterações, o formulário fecha sem requisição (o servidor rejeitaria um PATCH vazio).
+- Motivo: segue o contrato da API e reduz a perda de atualização ao caso de dois admins mudarem o mesmo campo.
+- Trade-offs: no mesmo campo, a última gravação ainda vence sem aviso.
+- Em produção: `If-Match` com versão do documento e 409 em conflito.

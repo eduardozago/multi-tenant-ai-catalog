@@ -9,6 +9,8 @@ const MESSAGES_BY_CODE: Record<string, string> = {
   NETWORK_ERROR: "Não foi possível conectar ao servidor. Verifique sua conexão.",
   FORBIDDEN: "Você não tem permissão para esta ação.",
   VALIDATION_ERROR: "Revise os campos destacados.",
+  // Deleted meanwhile, or never belonged to this company (both are 404 by design).
+  PRODUCT_NOT_FOUND: "Este produto não existe mais. Atualize a página.",
 };
 
 export function getErrorMessage(error: unknown): string {

@@ -3,6 +3,7 @@ import request from "supertest";
 import { expect } from "vitest";
 
 import { type AppOptions, createApp } from "../src/app";
+import type { ProductDto } from "../src/modules/products/product.dto";
 
 export const PASSWORD = "password123";
 
@@ -50,4 +51,29 @@ export async function createMember(
     .send({ name: email, email, password: PASSWORD, role })
     .expect(201);
   return login(app, email);
+}
+
+export const validProduct = {
+  name: "Ração Premium Cães Adultos 15kg",
+  description: "Ração completa para cães adultos de porte médio.",
+  priceCents: 18990,
+  category: "Rações",
+  imageUrl: "https://picsum.photos/seed/racao-premium/640/480",
+};
+
+/** A product as it arrives over HTTP: the DTO with dates serialized to strings. */
+export type ProductBody = Omit<ProductDto, "createdAt" | "updatedAt"> & { createdAt: string; updatedAt: string };
+
+/** Admin creates a product through the API; `overrides` replace fields of `validProduct`. */
+export async function createProduct(
+  app: Express,
+  admin: Session,
+  overrides: Record<string, unknown> = {},
+): Promise<ProductBody> {
+  const res = await request(app)
+    .post("/products")
+    .set("Cookie", admin.cookie)
+    .send({ ...validProduct, ...overrides })
+    .expect(201);
+  return res.body.product;
 }

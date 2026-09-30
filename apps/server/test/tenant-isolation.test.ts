@@ -2,10 +2,19 @@ import { Types } from "mongoose";
 import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { ProductModel } from "../src/modules/products/product.model";
 import { UserModel } from "../src/modules/users/user.model";
 import { UserRepository } from "../src/modules/users/user.repository";
 import { TenantScopeError } from "../src/shared/errors";
-import { createMember, createTestApp, PASSWORD, registerCompany, type Session } from "./helpers";
+import {
+  createMember,
+  createProduct,
+  createTestApp,
+  PASSWORD,
+  type ProductBody,
+  registerCompany,
+  type Session,
+} from "./helpers";
 
 const app = createTestApp();
 
@@ -52,6 +61,59 @@ describe("tenant isolation through the API", () => {
     const repo = new UserRepository();
     expect(await repo.findById(adminB.user.company.id, adminA.user.id)).toBeNull();
     expect(await repo.findById(adminA.user.company.id, adminA.user.id)).not.toBeNull();
+  });
+});
+
+describe("product isolation through the API", () => {
+  let adminA: Session;
+  let adminB: Session;
+  let productB: ProductBody;
+
+  beforeEach(async () => {
+    adminA = await registerCompany(app, "a");
+    adminB = await registerCompany(app, "b");
+    productB = await createProduct(app, adminB, { name: "Kit Presente B", priceCents: 5000 });
+  });
+
+  async function expectProductBUnchanged() {
+    const res = await request(app).get(`/products/${productB.id}`).set("Cookie", adminB.cookie).expect(200);
+    expect(res.body.product).toEqual(productB);
+  }
+
+  it("returns 404 PRODUCT_NOT_FOUND when admin A reads, updates or deletes a company B product", async () => {
+    const responses = [
+      await request(app).get(`/products/${productB.id}`).set("Cookie", adminA.cookie),
+      await request(app).patch(`/products/${productB.id}`).set("Cookie", adminA.cookie).send({ priceCents: 1 }),
+      await request(app).delete(`/products/${productB.id}`).set("Cookie", adminA.cookie),
+    ];
+    for (const res of responses) {
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe("PRODUCT_NOT_FOUND");
+    }
+
+    await expectProductBUnchanged();
+  });
+
+  it("ignores company_id in a PATCH body: the product stays in its company", async () => {
+    const productA = await createProduct(app, adminA);
+
+    await request(app)
+      .patch(`/products/${productA.id}`)
+      .set("Cookie", adminA.cookie)
+      .send({ name: "Renomeado", company_id: adminB.user.company.id, companyId: adminB.user.company.id })
+      .expect(200);
+
+    const stored = await ProductModel.findOne({ _id: productA.id, company_id: adminA.user.company.id }).lean();
+    expect(stored?.name).toBe("Renomeado");
+    await request(app).get(`/products/${productA.id}`).set("Cookie", adminB.cookie).expect(404);
+  });
+
+  it("ignores company_id in a POST body: the product is created in the caller's company", async () => {
+    const created = await createProduct(app, adminA, { company_id: adminB.user.company.id });
+
+    const stored = await ProductModel.findOne({ _id: created.id, company_id: adminA.user.company.id }).lean();
+    expect(stored?.createdBy.toString()).toBe(adminA.user.id);
+    await request(app).get(`/products/${created.id}`).set("Cookie", adminB.cookie).expect(404);
   });
 });
 
@@ -203,5 +265,43 @@ describe("tenantScoped plugin", () => {
     await expect(
       UserModel.create({ name: "No tenant", email: "none@x.test", passwordHash: "x", role: "user" }),
     ).rejects.toThrow(/company_id/);
+  });
+});
+
+describe("tenantScoped plugin on products", () => {
+  let companyA: string;
+  let companyB: string;
+
+  beforeEach(async () => {
+    const adminA = await registerCompany(app, "a");
+    const adminB = await registerCompany(app, "b");
+    companyA = adminA.user.company.id;
+    companyB = adminB.user.company.id;
+    const product = (companyId: string, createdBy: string, category: string) => ({
+      company_id: companyId,
+      createdBy,
+      name: `Product ${category}`,
+      priceCents: 1000,
+      category,
+    });
+    await ProductModel.create([
+      product(companyA, adminA.user.id, "Brinquedos"),
+      product(companyA, adminA.user.id, "Rações"),
+      product(companyB, adminB.user.id, "Notebooks"),
+    ]);
+  });
+
+  it("throws on distinct without company_id", async () => {
+    await expect(ProductModel.distinct("category")).rejects.toBeInstanceOf(TenantScopeError);
+  });
+
+  it("throws on estimatedDocumentCount, which cannot be filtered by tenant", async () => {
+    await expect(ProductModel.estimatedDocumentCount()).rejects.toBeInstanceOf(TenantScopeError);
+  });
+
+  it("returns only the tenant's values from a scoped distinct", async () => {
+    const categories = await ProductModel.distinct("category", { company_id: companyA });
+    expect(categories.sort()).toEqual(["Brinquedos", "Rações"]);
+    expect(await ProductModel.distinct("category", { company_id: companyB })).toEqual(["Notebooks"]);
   });
 });

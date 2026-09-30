@@ -21,7 +21,7 @@ function isHttpClientError(err: unknown): err is { status: number; type?: string
 }
 
 export const notFoundHandler: RequestHandler = (req) => {
-  throw new NotFoundError(`Route ${req.method} ${req.path} not found`);
+  throw new NotFoundError("NOT_FOUND", `Route ${req.method} ${req.path} not found`);
 };
 
 export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {

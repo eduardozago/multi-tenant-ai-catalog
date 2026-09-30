@@ -1,20 +1,34 @@
 import { Alert, AlertDescription, AlertTitle } from "@multi-tenant-ai-catalog/ui/components/alert";
 import { Button } from "@multi-tenant-ai-catalog/ui/components/button";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@multi-tenant-ai-catalog/ui/components/empty";
-import { createFileRoute } from "@tanstack/react-router";
-import { Eye, Package, Plus } from "lucide-react";
+import { cn } from "@multi-tenant-ai-catalog/ui/lib/utils";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { AlertCircle, Eye, Plus } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 
-import { PageHeader } from "@/components/page-header";
 import { RequirePermission } from "@/components/forbidden-state";
+import { PageHeader } from "@/components/page-header";
+import type { Product } from "@/features/products/api";
+import {
+  CatalogEmpty,
+  CatalogError,
+  CatalogNoResults,
+  PRODUCT_GRID_CLASS,
+  ProductGridSkeleton,
+} from "@/features/products/components/catalog-states";
+import { DeleteProductDialog } from "@/features/products/components/delete-product-dialog";
+import { type ProductActions, ProductCard } from "@/features/products/components/product-card";
+import { ProductDetailSheet } from "@/features/products/components/product-detail-sheet";
+import { ProductFormSheet } from "@/features/products/components/product-form-sheet";
+import { ProductsPagination } from "@/features/products/components/products-pagination";
+import { type FiltersPatch, ProductsToolbar } from "@/features/products/components/products-toolbar";
+import { useProducts } from "@/features/products/hooks";
+import { productSearchSchema } from "@/features/products/schemas";
+import { getErrorMessage } from "@/lib/form-errors";
 import { Can, usePermission } from "@/lib/permissions";
 
 export const Route = createFileRoute("/_app/products")({
+  // Filters live in the URL: a filtered view survives refresh and can be shared.
+  validateSearch: productSearchSchema,
   head: () => ({ meta: [{ title: "Produtos · Catálogo IA" }] }),
   component: () => (
     <RequirePermission permission="products:read">
@@ -23,23 +37,111 @@ export const Route = createFileRoute("/_app/products")({
   ),
 });
 
-// Placeholder: the catalog is implemented in the next task.
+function productCountLabel(total: number, filtered: boolean): string {
+  const noun = total === 1 ? "produto" : "produtos";
+  if (filtered) return `${total} ${noun} ${total === 1 ? "encontrado" : "encontrados"}`;
+  return `${total} ${noun} no catálogo`;
+}
+
 function ProductsPage() {
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
   const canWrite = usePermission("products:write");
+
+  const page = search.page ?? 1;
+  const products = useProducts({
+    search: search.search,
+    category: search.category,
+    sort: search.sort,
+    page,
+  });
+  // Sort orders the results but never hides any, so it does not count as a filter here.
+  const isFiltered = search.search !== undefined || search.category !== undefined;
+
+  const [detail, setDetail] = useState<{ product: Product | null; open: boolean }>({
+    product: null,
+    open: false,
+  });
+  // `key` grows on every open so the form remounts with fresh values (see ProductFormSheet).
+  const [form, setForm] = useState<{ product: Product | null; open: boolean; key: number }>({
+    product: null,
+    open: false,
+    key: 0,
+  });
+
+  const [deletion, setDeletion] = useState<{ product: Product | null; open: boolean }>({
+    product: null,
+    open: false,
+  });
+
+  const openForm = (product: Product | null) => {
+    // One panel at a time: editing from the detail sheet replaces it with the form.
+    setDetail((current) => ({ ...current, open: false }));
+    setForm((current) => ({ product, open: true, key: current.key + 1 }));
+  };
+
+  const changeFilters = useCallback(
+    (patch: FiltersPatch, options?: { replace?: boolean }) =>
+      navigate({
+        // A new filter changes the result set, so page 3 of the old one means nothing.
+        search: (prev) => ({ ...prev, ...patch, page: undefined }),
+        replace: options?.replace,
+      }),
+    [navigate],
+  );
+  const clearFilters = useCallback(() => navigate({ search: {} }), [navigate]);
+
+  // A shared or stale link can point past the last page (products were deleted since):
+  // move to the last page that exists instead of showing an empty page.
+  const totalPages = products.data?.meta.totalPages;
+  useEffect(() => {
+    if (products.isPlaceholderData || totalPages === undefined) return;
+    const lastPage = Math.max(totalPages, 1);
+    if (page > lastPage) {
+      void navigate({
+        search: (prev) => ({ ...prev, page: lastPage > 1 ? lastPage : undefined }),
+        replace: true,
+      });
+    }
+  }, [page, totalPages, products.isPlaceholderData, navigate]);
+
+  const actions: ProductActions = {
+    onEdit: openForm,
+    // The detail sheet stays open underneath: cancelling the dialog goes back to it.
+    onDelete: (product) => setDeletion({ product, open: true }),
+  };
+
+  const onDeleted = (deleted: Product) => {
+    if (detail.product?.id === deleted.id) setDetail((current) => ({ ...current, open: false }));
+    // The last card of a page is gone: step back now instead of flashing an empty page
+    // until the refetch lands (the clamp effect above would get there, one render later).
+    // Not with placeholder data: that is the previous page's list, not the one on screen.
+    // `replace`, so Back does not return to the page that no longer exists.
+    if (!products.isPlaceholderData && products.data?.data.length === 1 && page > 1) {
+      void navigate({
+        search: (prev) => ({ ...prev, page: page - 1 > 1 ? page - 1 : undefined }),
+        replace: true,
+      });
+    }
+  };
+
+  const newProductButton = (
+    <Button onClick={() => openForm(null)}>
+      <Plus aria-hidden />
+      Novo produto
+    </Button>
+  );
+
+  const isEmptyCatalog = products.data?.meta.total === 0 && !isFiltered;
 
   return (
     <>
       <PageHeader
         title="Produtos"
-        description="O catálogo da sua empresa."
-        action={
-          <Can permission="products:write">
-            <Button disabled>
-              <Plus aria-hidden />
-              Novo produto
-            </Button>
-          </Can>
+        description={
+          products.data ? productCountLabel(products.data.meta.total, isFiltered) : "O catálogo da sua empresa."
         }
+        action={<Can permission="products:write">{newProductButton}</Can>}
       />
 
       {!canWrite && (
@@ -52,15 +154,81 @@ function ProductsPage() {
         </Alert>
       )}
 
-      <Empty className="border">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <Package />
-          </EmptyMedia>
-          <EmptyTitle>Catálogo em construção</EmptyTitle>
-          <EmptyDescription>A listagem de produtos chega na próxima etapa.</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
+      {!isEmptyCatalog && <ProductsToolbar filters={search} onChange={changeFilters} onClear={clearFilters} />}
+
+      {/* A failed background refetch keeps the last data: warn above it instead of
+          replacing a working grid with the full error state. */}
+      {products.isError && products.data && (
+        <Alert variant="destructive">
+          <AlertCircle aria-hidden />
+          <AlertTitle>Não foi possível atualizar os produtos</AlertTitle>
+          <AlertDescription className="flex flex-col items-start gap-2">
+            {getErrorMessage(products.error)}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => products.refetch()}
+              disabled={products.isRefetching}
+            >
+              Tentar novamente
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {products.isPending ? (
+        <ProductGridSkeleton />
+      ) : !products.data ? (
+        <CatalogError
+          error={products.error}
+          onRetry={() => products.refetch()}
+          retrying={products.isRefetching}
+        />
+      ) : isEmptyCatalog ? (
+        <CatalogEmpty action={canWrite ? newProductButton : null} />
+      ) : products.data.data.length === 0 ? (
+        <CatalogNoResults onClear={clearFilters} />
+      ) : (
+        <>
+          <ul
+            className={cn(PRODUCT_GRID_CLASS, "transition-opacity", products.isPlaceholderData && "opacity-60")}
+            aria-busy={products.isPlaceholderData}
+          >
+            {products.data.data.map((product) => (
+              <li key={product.id}>
+                <ProductCard
+                  product={product}
+                  onOpen={(selected) => setDetail({ product: selected, open: true })}
+                  actions={actions}
+                />
+              </li>
+            ))}
+          </ul>
+          <ProductsPagination page={page} totalPages={products.data.meta.totalPages} />
+        </>
+      )}
+
+      <ProductDetailSheet
+        product={detail.product}
+        open={detail.open}
+        onOpenChange={(open) => setDetail((current) => ({ ...current, open }))}
+        actions={actions}
+      />
+
+      <Can permission="products:write">
+        <ProductFormSheet
+          open={form.open}
+          product={form.product}
+          formKey={form.key}
+          onOpenChange={(open) => setForm((current) => ({ ...current, open }))}
+        />
+        <DeleteProductDialog
+          product={deletion.product}
+          open={deletion.open}
+          onOpenChange={(open) => setDeletion((current) => ({ ...current, open }))}
+          onDeleted={onDeleted}
+        />
+      </Can>
     </>
   );
 }
