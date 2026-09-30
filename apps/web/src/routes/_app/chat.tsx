@@ -1,15 +1,8 @@
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@multi-tenant-ai-catalog/ui/components/empty";
 import { createFileRoute } from "@tanstack/react-router";
-import { MessageSquare } from "lucide-react";
+import { useState } from "react";
 
 import { RequirePermission } from "@/components/forbidden-state";
-import { PageHeader } from "@/components/page-header";
+import { ChatView } from "@/features/chat/components/chat-view";
 
 export const Route = createFileRoute("/_app/chat")({
   head: () => ({ meta: [{ title: "Chat · Catálogo IA" }] }),
@@ -20,23 +13,24 @@ export const Route = createFileRoute("/_app/chat")({
   ),
 });
 
-// Placeholder: the agent chat is implemented in a later task.
 function ChatPage() {
+  const [conversationId, setConversationId] = useState<string | null>(null);
+
   return (
-    <>
-      <PageHeader
-        title="Chat"
-        description="Pergunte sobre o catálogo. O agente responde com base nos produtos cadastrados."
+    // The chat owns its height, unlike other pages that grow with the document: the
+    // message list scrolls inside and the composer stays at the bottom. The negative
+    // margin cancels the layout's padding (p-4 md:p-6) and 3rem is the app header, so
+    // the page is exactly one viewport tall. dvh (not vh) shrinks with the mobile
+    // browser bars and, with interactive-widget=resizes-content, with the keyboard.
+    <div className="-m-4 flex h-[calc(100dvh-3rem)] min-h-0 flex-col md:-m-6">
+      <div className="flex h-11 shrink-0 items-center border-b px-4">
+        <h1 className="text-base font-semibold">Chat</h1>
+      </div>
+      <ChatView
+        conversationId={conversationId}
+        onConversationCreated={setConversationId}
+        onNewConversation={() => setConversationId(null)}
       />
-      <Empty className="border">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <MessageSquare />
-          </EmptyMedia>
-          <EmptyTitle>Chat em construção</EmptyTitle>
-          <EmptyDescription>O agente de IA chega em uma próxima etapa.</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    </>
+    </div>
   );
 }

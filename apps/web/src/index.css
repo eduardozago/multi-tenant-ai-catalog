@@ -1,1 +1,31 @@
 @import "@multi-tenant-ai-catalog/ui/globals.css";
+
+/*
+ * Blinking caret at the end of an assistant answer while it streams. Drawn with ::after
+ * on the last text block, so it sits inline after the last word instead of on a line of
+ * its own below the markdown. Tables and code blocks as the last block get no caret.
+ */
+[data-streaming="true"] > :is(p, h3, h4):last-child::after,
+[data-streaming="true"] > :is(ul, ol):last-child > li:last-child::after {
+  content: "";
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 0.15em;
+  vertical-align: text-bottom;
+  background-color: currentColor;
+  animation: chat-caret-blink 1s steps(1) infinite;
+}
+
+@keyframes chat-caret-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-streaming="true"] > *::after,
+  [data-streaming="true"] li::after {
+    animation: none;
+  }
+}

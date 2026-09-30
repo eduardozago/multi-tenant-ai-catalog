@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { notifyManager, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import { ApiError } from "@/lib/api-client";
@@ -191,15 +191,30 @@ export function useChatStream(conversationId: string | null) {
           } else if (event.type === "done") {
             const id = conversationId ?? createdId;
             if (!id) throw new ApiError(200, "INVALID_STREAM", "done arrived without a conversation id");
-            commit(id, conversationId === null, message, {
+            const reply: ChatMessage = {
               role: "assistant",
               content: event.reply,
               toolCalls: event.toolCalls,
               products: event.products,
               createdAt: new Date().toISOString(),
-            });
+            };
             activeRef.current = null;
-            dispatch({ type: "reset" });
+            // The exchange moves from this state to the cache, and both must reach React in
+            // the same render: the cache notifies its observers in a later task, so a plain
+            // dispatch would first render the answer gone (or, in a new conversation, the
+            // empty state), then back. Scheduling the reset through notifyManager inside the
+            // same batch puts it in the same flush as the cache notifications. `send`
+            // resolves after that flush, so the caller's navigation to a new conversation
+            // joins the same render too.
+            await new Promise<void>((resolve) => {
+              notifyManager.batch(() => {
+                commit(id, conversationId === null, message, reply);
+                notifyManager.schedule(() => {
+                  dispatch({ type: "reset" });
+                  resolve();
+                });
+              });
+            });
             return id;
           } else {
             dispatch({ type: "event", event });
