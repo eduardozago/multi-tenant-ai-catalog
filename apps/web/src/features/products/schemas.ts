@@ -35,7 +35,7 @@ export type ProductSearch = z.infer<typeof productSearchSchema>;
 
 // Same rule as the server's HTTP_URL + z.url({ protocol: /^https?$/ }).
 const HTTP_URL = /^https?:\/\/\S+$/i;
-const isHttpUrl = (value: string) => HTTP_URL.test(value) && URL.canParse(value);
+export const isHttpUrl = (value: string) => HTTP_URL.test(value) && URL.canParse(value);
 
 /**
  * Mirrors createProductBodySchema. `priceCents` is typed as masked text ("1.234,56") and

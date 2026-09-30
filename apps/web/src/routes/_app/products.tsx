@@ -17,6 +17,7 @@ import {
 } from "@/features/products/components/catalog-states";
 import { type ProductActions, ProductCard } from "@/features/products/components/product-card";
 import { ProductDetailSheet } from "@/features/products/components/product-detail-sheet";
+import { ProductFormSheet } from "@/features/products/components/product-form-sheet";
 import { ProductsPagination } from "@/features/products/components/products-pagination";
 import { type FiltersPatch, ProductsToolbar } from "@/features/products/components/products-toolbar";
 import { useProducts } from "@/features/products/hooks";
@@ -59,6 +60,18 @@ function ProductsPage() {
     product: null,
     open: false,
   });
+  // `key` grows on every open so the form remounts with fresh values (see ProductFormSheet).
+  const [form, setForm] = useState<{ product: Product | null; open: boolean; key: number }>({
+    product: null,
+    open: false,
+    key: 0,
+  });
+
+  const openForm = (product: Product | null) => {
+    // One panel at a time: editing from the detail sheet replaces it with the form.
+    setDetail((current) => ({ ...current, open: false }));
+    setForm((current) => ({ product, open: true, key: current.key + 1 }));
+  };
 
   // Stable, so the debounced search effect in the toolbar is not restarted on every render.
   const changeFilters = useCallback(
@@ -86,11 +99,11 @@ function ProductsPage() {
     }
   }, [page, totalPages, products.isPlaceholderData, navigate]);
 
-  // Edit and delete are wired in the next steps (form and confirmation dialog).
-  const actions: ProductActions = { onEdit: () => {}, onDelete: () => {} };
+  // Delete is wired in the next step (confirmation dialog).
+  const actions: ProductActions = { onEdit: openForm, onDelete: () => {} };
 
   const newProductButton = (
-    <Button disabled>
+    <Button onClick={() => openForm(null)}>
       <Plus aria-hidden />
       Novo produto
     </Button>
@@ -158,6 +171,15 @@ function ProductsPage() {
         onOpenChange={(open) => setDetail((current) => ({ ...current, open }))}
         actions={actions}
       />
+
+      <Can permission="products:write">
+        <ProductFormSheet
+          open={form.open}
+          product={form.product}
+          formKey={form.key}
+          onOpenChange={(open) => setForm((current) => ({ ...current, open }))}
+        />
+      </Can>
     </>
   );
 }
