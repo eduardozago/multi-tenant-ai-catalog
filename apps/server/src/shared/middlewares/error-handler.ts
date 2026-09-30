@@ -60,8 +60,11 @@ export function toErrorResponse(err: unknown): ErrorResponse {
     return { status: err.status, body: body(code, err.message) };
   }
 
-  // Unknown (including TenantScopeError): log the real error, return nothing internal.
-  console.error(err);
+  // Unknown (including TenantScopeError): log what is needed to debug, return nothing
+  // internal. Not the whole object: Mongoose validation/cast errors carry the offending
+  // values (which can be a chat message) in their `errors`/`value` fields.
+  const error = err instanceof Error ? err : new Error(String(err));
+  logger.error("unhandled_error", { name: error.name, message: error.message, stack: error.stack });
   return { status: 500, body: body("INTERNAL_ERROR", "Internal server error") };
 }
 

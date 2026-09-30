@@ -1,9 +1,10 @@
 import type { AddressInfo } from "node:net";
 
 import request from "supertest";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LLMUnavailableError } from "../src/modules/chat/llm/errors";
+import { logger } from "../src/shared/logger";
 import {
   FakeLLMProvider,
   MidStreamFailure,
@@ -104,7 +105,8 @@ describe("POST /chat/stream", () => {
     expect(list.body.conversations).toEqual([]);
   });
 
-  it("hides unexpected errors behind INTERNAL_ERROR", async () => {
+  it("hides unexpected errors behind INTERNAL_ERROR and logs them", async () => {
+    const logError = vi.spyOn(logger, "error");
     provider.push(new Error("secret internal detail"));
 
     const res = await stream({ message: "oi" }).expect(200);
@@ -112,6 +114,11 @@ describe("POST /chat/stream", () => {
     const events = parseEvents(res.text);
     expect(events.at(-1)).toEqual({ event: "error", data: { code: "INTERNAL_ERROR", message: "Internal server error" } });
     expect(res.text).not.toContain("secret internal detail");
+    expect(logError).toHaveBeenCalledWith(
+      "unhandled_error",
+      expect.objectContaining({ name: "Error", message: "secret internal detail" }),
+    );
+    logError.mockRestore();
   });
 
   it("continues an existing conversation and reuses its id in meta", async () => {

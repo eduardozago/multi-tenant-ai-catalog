@@ -204,7 +204,7 @@ curl -N -b cookies.txt -X POST http://localhost:3000/chat/stream \
 
 ### Métricas
 
-Cada execução gera uma linha JSON `agent_run` com `companyId`, `userId`, `outcome` (`end_turn`, `max_tokens`, código de erro ou `aborted`), `iterations`, `tools` (nomes chamados), `inputTokens` e `outputTokens` (somados entre as iterações) e `latencyMs`. O conteúdo das mensagens, das respostas e dos inputs das tools nunca é logado. Falhas do provedor geram `app_error` com o código e a mensagem do erro de origem.
+Cada execução gera uma linha JSON `agent_run` com `companyId`, `userId`, `outcome` (`end_turn`, `max_tokens`, código de erro ou `aborted`), `iterations`, `tools` (nomes chamados), `inputTokens` e `outputTokens` (somados entre as iterações) e `latencyMs`. O conteúdo das mensagens, das respostas e dos inputs das tools nunca é logado. Falhas do provedor geram `app_error` com o código e a mensagem do erro de origem; erros inesperados geram `unhandled_error` com nome, mensagem e stack (sem os valores que erros do Mongoose carregam).
 
 ### Smoke test com a API real
 
