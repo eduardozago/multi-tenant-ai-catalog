@@ -173,6 +173,12 @@ describe("toOpenAIRequest", () => {
     expect(toOpenAIRequest({ ...base, toolChoice: "auto" }, params)).not.toHaveProperty("tool_choice");
   });
 
+  it("sends reasoning_effort only when configured", () => {
+    const base = { system: "s", messages: [], tools: [tool] };
+    expect(toOpenAIRequest(base, { ...params, reasoningEffort: "none" })).toMatchObject({ reasoning_effort: "none" });
+    expect(toOpenAIRequest(base, params)).not.toHaveProperty("reasoning_effort");
+  });
+
   it("uses max_completion_tokens and omits tools when there are none", () => {
     const request = toOpenAIRequest({ system: "s", messages: [], tools: [] }, params);
     expect(request).toMatchObject({ model: "m", max_completion_tokens: 100 });

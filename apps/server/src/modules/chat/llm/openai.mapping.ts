@@ -4,6 +4,7 @@ import type {
   ChatCompletionMessageParam,
   ChatCompletionMessageToolCall,
 } from "openai/resources/chat/completions";
+import type { ReasoningEffort } from "openai/resources/shared";
 
 import type { LLMRequest, LLMResponse, Message, StopReason, TextBlock, ToolSpec, ToolUseBlock } from "./types";
 
@@ -116,9 +117,14 @@ export function fromOpenAIResponse(completion: ChatCompletion): LLMResponse {
   };
 }
 
-export type ChatRequestParams = { model: string; maxTokens: number };
+export type ChatRequestParams = {
+  model: string;
+  maxTokens: number;
+  /** Omitted from the request when undefined, so the model's default applies. */
+  reasoningEffort?: ReasoningEffort;
+};
 
-export function toOpenAIRequest(request: LLMRequest, { model, maxTokens }: ChatRequestParams) {
+export function toOpenAIRequest(request: LLMRequest, { model, maxTokens, reasoningEffort }: ChatRequestParams) {
   return {
     model,
     messages: toOpenAIMessages(request.system, request.messages),
@@ -127,5 +133,6 @@ export function toOpenAIRequest(request: LLMRequest, { model, maxTokens }: ChatR
       ...(request.toolChoice === "none" && { tool_choice: "none" as const }),
     }),
     max_completion_tokens: maxTokens,
+    ...(reasoningEffort !== undefined && { reasoning_effort: reasoningEffort }),
   };
 }

@@ -38,7 +38,12 @@ export function createContainer(options: ContainerOptions = {}) {
   const productService = new ProductService(productRepository);
 
   const llmProvider =
-    options.llmProvider ?? new OpenAIProvider({ apiKey: env.OPENAI_API_KEY, model: env.LLM_MODEL });
+    options.llmProvider ??
+    new OpenAIProvider({
+      apiKey: env.OPENAI_API_KEY,
+      model: env.LLM_MODEL,
+      reasoningEffort: env.LLM_REASONING_EFFORT,
+    });
   const agentService = new AgentService(llmProvider, createCatalogToolRegistry(productRepository), {
     maxIterations: env.AGENT_MAX_ITERATIONS,
   });

@@ -10,9 +10,12 @@ import type { LLMRequest, StreamEvent } from "../../src/modules/chat/llm/types";
 const request: LLMRequest = { system: "s", messages: [{ role: "user", content: [{ type: "text", text: "oi" }] }], tools: [] };
 
 /** Provider over a stub SDK client whose `create` does whatever the test says. */
-function providerWith(create: (...args: unknown[]) => Promise<unknown>) {
+function providerWith(
+  create: (...args: unknown[]) => Promise<unknown>,
+  options: Partial<ConstructorParameters<typeof OpenAIProvider>[0]> = {},
+) {
   const client = { chat: { completions: { create } } } as unknown as OpenAI;
-  return new OpenAIProvider({ apiKey: "unused", model: "m", client });
+  return new OpenAIProvider({ apiKey: "unused", model: "m", client, ...options });
 }
 
 function textChunk(content: string): ChatCompletionChunk {
@@ -93,6 +96,27 @@ describe("OpenAIProvider.stream", () => {
 
     expect(calls[0]![0]).toMatchObject({ stream: true, stream_options: { include_usage: true } });
     expect(calls[0]![1]).toMatchObject({ signal, timeout: expect.any(Number) });
+  });
+
+  it("sends the configured reasoning effort in stream and generate requests", async () => {
+    const params: unknown[] = [];
+    const provider = providerWith(
+      async (body) => {
+        params.push(body);
+        return (body as { stream?: boolean }).stream
+          ? chunksThen([])
+          : { id: "c", object: "chat.completion", created: 0, model: "m", choices: [] };
+      },
+      { reasoningEffort: "none" },
+    );
+
+    await collect(provider.stream(request));
+    await provider.generate(request);
+
+    expect(params).toEqual([
+      expect.objectContaining({ reasoning_effort: "none", stream: true }),
+      expect.objectContaining({ reasoning_effort: "none" }),
+    ]);
   });
 
   it("maps a failure before the first chunk to LLMUnavailableError", async () => {

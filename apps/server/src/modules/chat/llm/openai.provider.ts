@@ -1,5 +1,6 @@
 import OpenAI, { APIError, APIUserAbortError } from "openai";
 import type { ChatCompletionChunk } from "openai/resources/chat/completions";
+import type { ReasoningEffort } from "openai/resources/shared";
 
 import { LLMUnavailableError } from "./errors";
 import { fromOpenAIResponse, toOpenAIRequest } from "./openai.mapping";
@@ -13,6 +14,8 @@ export type OpenAIProviderOptions = {
   maxTokens?: number;
   /** Per-request timeout in ms. */
   timeoutMs?: number;
+  /** Sent only when set (e.g. "none" for reasoning models that reject tools otherwise). */
+  reasoningEffort?: ReasoningEffort;
   /** Tests pass a stub client to exercise error handling without network. */
   client?: OpenAI;
 };
@@ -26,19 +29,29 @@ export class OpenAIProvider implements LLMProvider {
   private readonly model: string;
   private readonly maxTokens: number;
   private readonly timeoutMs: number;
+  private readonly reasoningEffort: ReasoningEffort | undefined;
 
-  constructor({ apiKey, model, maxTokens = 1024, timeoutMs = 30_000, client }: OpenAIProviderOptions) {
+  constructor({ apiKey, model, maxTokens = 1024, timeoutMs = 30_000, reasoningEffort, client }: OpenAIProviderOptions) {
     // The SDK retries 429/5xx/connection errors twice with backoff before throwing.
     this.client = client ?? new OpenAI({ apiKey });
     this.model = model;
     this.maxTokens = maxTokens;
     this.timeoutMs = timeoutMs;
+    this.reasoningEffort = reasoningEffort;
+  }
+
+  private requestParams(request: LLMRequest) {
+    return toOpenAIRequest(request, {
+      model: this.model,
+      maxTokens: this.maxTokens,
+      reasoningEffort: this.reasoningEffort,
+    });
   }
 
   async generate(request: LLMRequest, { signal }: GenerateOptions = {}): Promise<LLMResponse> {
     try {
       const completion = await this.client.chat.completions.create(
-        toOpenAIRequest(request, { model: this.model, maxTokens: this.maxTokens }),
+        this.requestParams(request),
         { signal, timeout: this.timeoutMs },
       );
       return fromOpenAIResponse(completion);
@@ -50,7 +63,7 @@ export class OpenAIProvider implements LLMProvider {
   async *stream(request: LLMRequest, { signal }: GenerateOptions = {}): AsyncIterable<StreamEvent> {
     // Built outside any try: a bug in our mapping is a 500, not "provider unavailable".
     const params = {
-      ...toOpenAIRequest(request, { model: this.model, maxTokens: this.maxTokens }),
+      ...this.requestParams(request),
       stream: true as const,
       // Adds a final chunk with token usage, so streamed runs are measured too.
       stream_options: { include_usage: true },

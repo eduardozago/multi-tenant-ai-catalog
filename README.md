@@ -111,7 +111,7 @@ O seed cria 14 produtos para a Pet Feliz e 15 para a Volt Eletrônicos, com nome
 
 O chat responde perguntas sobre o catálogo consultando o MongoDB por tool calling. O loop é código próprio (sem LangChain ou Vercel AI SDK) sobre o SDK oficial da OpenAI (Chat Completions), atrás da interface `LLMProvider` (D-07, D-25, D-26). Código em `apps/server/src/modules/chat`.
 
-Configure em `apps/server/.env`: `OPENAI_API_KEY`, `LLM_MODEL` (modelo com tool calling, ex.: `gpt-4.1-mini`; não há padrão no código) e, opcionalmente, `AGENT_MAX_ITERATIONS` (padrão 5, de 2 a 10). Os testes não precisam de chave: usam um `FakeLLMProvider` roteirizado.
+Configure em `apps/server/.env`: `OPENAI_API_KEY`, `LLM_MODEL` (modelo com tool calling, ex.: `gpt-4.1-mini`; não há padrão no código) e, opcionalmente, `AGENT_MAX_ITERATIONS` (padrão 5, de 2 a 10) e `LLM_REASONING_EFFORT` (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`; só é enviado quando definido). Modelos de raciocínio como o `gpt-6-luna` só aceitam tools no Chat Completions com `LLM_REASONING_EFFORT=none`. Os testes não precisam de chave: usam um `FakeLLMProvider` roteirizado.
 
 | Método | Rota | Acesso | Descrição |
 | --- | --- | --- | --- |
