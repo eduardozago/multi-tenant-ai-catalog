@@ -1,7 +1,7 @@
 import { AppError } from "../../shared/errors";
 import { logger } from "../../shared/logger";
 import type { ProductDto } from "../products/product.dto";
-import type { LLMProvider, Message, TextBlock, ToolUseBlock, Usage } from "./llm/types";
+import type { LLMProvider, LLMRequest, LLMResponse, Message, TextBlock, ToolUseBlock, Usage } from "./llm/types";
 import { buildSystemPrompt } from "./system-prompt";
 import type { ToolExecution, ToolRegistry } from "./tools/registry";
 import type { ToolContext } from "./tools/tool";
@@ -21,10 +21,12 @@ export type ToolCallSummary = {
   error?: string;
 };
 
-/** Progress events for streaming clients. `delta` is added with streaming. */
+/** Progress events for streaming clients. */
 export type AgentEvent =
   | { type: "tool_start"; name: string; input: unknown }
-  | ({ type: "tool_end" } & ToolCallSummary);
+  | ({ type: "tool_end" } & ToolCallSummary)
+  /** Text as the model writes it (stream mode only). */
+  | { type: "delta"; text: string };
 
 export type AgentRunInput = {
   ctx: ToolContext;
@@ -34,6 +36,8 @@ export type AgentRunInput = {
   message: string;
   signal?: AbortSignal;
   onEvent?: (event: AgentEvent) => void;
+  /** Use provider.stream and emit `delta` events; the result is the same. */
+  stream?: boolean;
 };
 
 export type AgentResult = {
@@ -90,7 +94,7 @@ export class AgentService {
     private readonly options: AgentOptions,
   ) {}
 
-  async run({ ctx, companyName, history, message, signal, onEvent }: AgentRunInput): Promise<AgentResult> {
+  async run({ ctx, companyName, history, message, signal, onEvent, stream }: AgentRunInput): Promise<AgentResult> {
     const startedAt = Date.now();
     const system = buildSystemPrompt(companyName);
     const messages: Message[] = [...history, { role: "user", content: [{ type: "text", text: message }] }];
@@ -114,11 +118,13 @@ export class AgentService {
 
     try {
       while (iterations < this.options.maxIterations) {
+        // A client that went away stops the loop before the next paid call.
+        signal?.throwIfAborted();
         iterations += 1;
-        const response = await this.provider.generate(
-          { system, messages, tools: this.tools.specs() },
-          { signal },
-        );
+        const request: LLMRequest = { system, messages, tools: this.tools.specs() };
+        const response = stream
+          ? await this.streamModel(request, signal, onEvent)
+          : await this.provider.generate(request, { signal });
         usage.inputTokens += response.usage.inputTokens;
         usage.outputTokens += response.usage.outputTokens;
 
@@ -142,9 +148,21 @@ export class AgentService {
       }
       throw new AgentIterationLimitError(this.options.maxIterations);
     } catch (error) {
-      log(error instanceof AppError ? error.code : "error");
+      log(signal?.aborted ? "aborted" : error instanceof AppError ? error.code : "error");
       throw error;
     }
+  }
+
+  private async streamModel(
+    request: LLMRequest,
+    signal: AbortSignal | undefined,
+    onEvent: AgentRunInput["onEvent"],
+  ): Promise<LLMResponse> {
+    for await (const event of this.provider.stream(request, { signal })) {
+      if (event.type === "delta") onEvent?.({ type: "delta", text: event.text });
+      else return event.response;
+    }
+    throw new Error("LLM stream ended without a response");
   }
 
   private async runTool(

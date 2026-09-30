@@ -207,6 +207,46 @@ describe("AgentService.run", () => {
     ]);
   });
 
+  it("in stream mode emits text deltas and returns the same result", async () => {
+    const events: AgentEvent[] = [];
+    const { agent } = setup([textResponse("Olá, tudo bem?")]);
+
+    const result = await agent.run({
+      ctx,
+      companyName: "Pet Feliz",
+      history: [],
+      message: "oi",
+      stream: true,
+      onEvent: (event) => events.push(event),
+    });
+
+    expect(result.reply).toBe("Olá, tudo bem?");
+    const deltas = events.flatMap((event) => (event.type === "delta" ? [event.text] : []));
+    expect(deltas.join("")).toBe("Olá, tudo bem?");
+  });
+
+  it("stops before the next model call when the signal is aborted", async () => {
+    const controller = new AbortController();
+    const { agent, provider } = setup([
+      toolUseResponse({ id: "call_1", name: "list_categories", input: {} }),
+      textResponse("não deveria chegar aqui"),
+    ]);
+
+    const promise = agent.run({
+      ctx,
+      companyName: "Pet Feliz",
+      history: [],
+      message: "oi",
+      signal: controller.signal,
+      onEvent: (event) => {
+        if (event.type === "tool_end") controller.abort();
+      },
+    });
+
+    await expect(promise).rejects.toMatchObject({ name: "AbortError" });
+    expect(provider.requests).toHaveLength(1);
+  });
+
   it("uses a fallback reply when the model returns no text", async () => {
     const { agent } = setup([{ content: [], stopReason: "max_tokens", usage: { inputTokens: 1, outputTokens: 1 } }]);
     expect((await run(agent)).reply).toMatch(/reformular/);

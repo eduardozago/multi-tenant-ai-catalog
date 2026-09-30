@@ -19,6 +19,8 @@ export function createChatRouter({ controller, authenticate, chatRateLimit }: De
   router.use(authenticate, authorize("admin", "user"));
 
   router.post("/", chatRateLimit, validate({ body: sendMessageBodySchema }), controller.send);
+  // Same guards and body; errors raised by this chain are still plain JSON responses.
+  router.post("/stream", chatRateLimit, validate({ body: sendMessageBodySchema }), controller.stream);
   router.get("/conversations", controller.listConversations);
   router.get("/conversations/:id", validate({ params: conversationParamsSchema }), controller.getConversation);
 

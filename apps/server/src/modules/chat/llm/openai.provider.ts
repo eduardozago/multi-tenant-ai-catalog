@@ -2,6 +2,7 @@ import OpenAI, { APIError, APIUserAbortError } from "openai";
 
 import { LLMUnavailableError } from "./errors";
 import { fromOpenAIResponse, toOpenAIRequest } from "./openai.mapping";
+import { StreamAccumulator } from "./openai.stream";
 import type { GenerateOptions, LLMProvider, LLMRequest, LLMResponse, StreamEvent } from "./types";
 
 export type OpenAIProviderOptions = {
@@ -43,13 +44,30 @@ export class OpenAIProvider implements LLMProvider {
     }
   }
 
-  // Non-incremental for now: one delta with the full text, then the response.
-  // Token-by-token streaming replaces this in the SSE step.
-  async *stream(request: LLMRequest, options: GenerateOptions = {}): AsyncIterable<StreamEvent> {
-    const response = await this.generate(request, options);
-    const text = response.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
-    if (text) yield { type: "delta", text };
-    yield { type: "response", response };
+  async *stream(request: LLMRequest, { signal }: GenerateOptions = {}): AsyncIterable<StreamEvent> {
+    const accumulator = new StreamAccumulator();
+    try {
+      const chunks = await this.client.chat.completions.create(
+        {
+          ...toOpenAIRequest(request, { model: this.model, maxTokens: this.maxTokens }),
+          stream: true,
+          // Adds a final chunk with token usage, so streamed runs are measured too.
+          stream_options: { include_usage: true },
+        },
+        { signal, timeout: this.timeoutMs },
+      );
+      for await (const chunk of chunks) {
+        const text = accumulator.push(chunk);
+        if (text) yield { type: "delta", text };
+      }
+    } catch (error) {
+      // Covers failures before the first chunk and in the middle of the stream. A dropped
+      // connection mid-stream surfaces as a plain Error from the HTTP client, not an
+      // APIError, so anything that is not our own abort counts as upstream failure.
+      if (error instanceof APIUserAbortError || signal?.aborted) throw error;
+      throw error instanceof LLMUnavailableError ? error : new LLMUnavailableError(error);
+    }
+    yield { type: "response", response: accumulator.finish() };
   }
 }
 

@@ -254,3 +254,12 @@ Decisões arquiteturais do projeto, no formato contexto, opções, decisão e tr
 - Motivo: o cliente não consegue forjar mensagens de assistente ou resultados de tool para manipular o modelo; conversas não vazam entre usuários do mesmo tenant; preços antigos de respostas passadas não competem com os atuais.
 - Trade-offs: o documento da conversa cresce sem limite (mensagens embutidas); os produtos da resposta são um snapshot e podem ficar desatualizados na tela; o limite por usuário é em memória.
 - Em produção: janela de histórico por tokens com resumo das mensagens antigas, mensagens em coleção própria ou limite por conversa, rate limit e cota de tokens por tenant com store compartilhado (Redis).
+
+## D-30: Streaming do agente por SSE sobre POST
+- Status: aceita
+- Contexto: uma resposta com tool calls leva vários segundos; sem progresso, a UI parece travada.
+- Opções: WebSocket, SSE via `GET` com `EventSource`, SSE como resposta de um `POST` lido com `fetch`.
+- Decisão: `POST /chat/stream` com o mesmo corpo e os mesmos guards de `POST /chat`, respondendo `text/event-stream` com os eventos `meta` → `tool_start`/`tool_end` → `delta` → `done` ou `error`. O serviço tem duas etapas: `prepare` (dono da conversa, empresa, id da conversa) roda antes de abrir o stream, então 400/401/404 continuam JSON; `complete` roda o agente já com o stream aberto, e falhas viram um evento `error` com o mesmo código e mensagem do error handler (`toErrorResponse` compartilhado). Desconexão do cliente aborta a chamada ao provedor e o loop; só respostas completas são gravadas.
+- Motivo: SSE é HTTP comum (cookies, CORS e o `requireJson` contra CSRF continuam valendo), unidirecional como o caso pede; `EventSource` não envia corpo nem permite `POST`, por isso o web lê o stream com `fetch`.
+- Trade-offs: depois do 200 não há como mudar o status; o cliente precisa tratar o evento `error`. Texto escrito pelo modelo antes de chamar tools também chega como `delta`; o texto final autoritativo é o do `done`. Sem heartbeat, um proxy com timeout curto pode fechar respostas muito lentas.
+- Em produção: heartbeat (comentário SSE a cada ~15s), `retry`/retomada por id de evento, e métricas de tempo até o primeiro token.

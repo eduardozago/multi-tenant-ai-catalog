@@ -22,6 +22,18 @@ export type ChatReply = {
 export type SendOptions = {
   signal?: AbortSignal;
   onEvent?: (event: AgentEvent) => void;
+  /** Stream the model's text as `delta` events. */
+  stream?: boolean;
+};
+
+/** A message ready to run: ownership checked, conversation id fixed. */
+export type PreparedTurn = {
+  ctx: RequestContext;
+  message: string;
+  companyName: string;
+  conversationId: string;
+  /** Null for a new conversation, created when the first answer completes. */
+  existing: Conversation | null;
 };
 
 const conversationNotFound = () => new NotFoundError("CONVERSATION_NOT_FOUND", "Conversation not found");
@@ -49,12 +61,18 @@ export class ChatService {
     private readonly companies: CompanyRepository,
   ) {}
 
-  /**
-   * Runs the agent on a new or existing conversation of the caller and stores the
-   * exchange. Nothing is stored when the agent fails, so a conversation never ends with
-   * an unanswered question the next request would replay.
-   */
+  /** Validates, runs and stores one message. The JSON endpoint; streaming uses the two steps. */
   async send(ctx: RequestContext, input: SendMessageInput, options: SendOptions = {}): Promise<ChatReply> {
+    return this.complete(await this.prepare(ctx, input), options);
+  }
+
+  /**
+   * Everything that can fail before the agent runs: conversation ownership and the
+   * company. Separate from complete() so the SSE endpoint can still answer these errors
+   * with a normal JSON status before it commits to a 200 event stream. Also fixes the
+   * conversation id, so a streaming client learns it before the answer exists.
+   */
+  async prepare(ctx: RequestContext, input: SendMessageInput): Promise<PreparedTurn> {
     // Loaded (and ownership checked) before spending any tokens.
     const existing = input.conversationId
       ? await this.conversations.findById(ctx.companyId, ctx.userId, input.conversationId)
@@ -64,18 +82,35 @@ export class ChatService {
     const company = await this.companies.findById(ctx.companyId);
     if (!company) throw new NotFoundError("COMPANY_NOT_FOUND", "Company not found");
 
+    return {
+      ctx,
+      message: input.message,
+      companyName: company.name,
+      conversationId: existing?.id ?? this.conversations.newId(),
+      existing,
+    };
+  }
+
+  /**
+   * Runs the agent and stores the exchange. Nothing is stored when the agent fails or
+   * the client aborts, so a conversation never ends with an unanswered question the
+   * next request would replay.
+   */
+  async complete(turn: PreparedTurn, options: SendOptions = {}): Promise<ChatReply> {
+    const { ctx, existing, conversationId } = turn;
     const userMessageAt = new Date();
     const result = await this.agent.run({
       ctx: { companyId: ctx.companyId, userId: ctx.userId },
-      companyName: company.name,
+      companyName: turn.companyName,
       history: existing ? toHistory(existing.messages) : [],
-      message: input.message,
+      message: turn.message,
       signal: options.signal,
       onEvent: options.onEvent,
+      stream: options.stream,
     });
 
     const exchange: StoredMessage[] = [
-      { role: "user", content: input.message, createdAt: userMessageAt },
+      { role: "user", content: turn.message, createdAt: userMessageAt },
       {
         role: "assistant",
         content: result.reply,
@@ -85,16 +120,13 @@ export class ChatService {
       },
     ];
 
-    let conversationId: string;
     if (existing) {
-      conversationId = existing.id;
-      const appended = await this.conversations.appendMessages(ctx.companyId, ctx.userId, existing.id, exchange);
+      const appended = await this.conversations.appendMessages(ctx.companyId, ctx.userId, conversationId, exchange);
       if (!appended) throw conversationNotFound();
     } else {
-      conversationId = this.conversations.newId();
       await this.conversations.create(ctx.companyId, ctx.userId, {
         id: conversationId,
-        title: titleFrom(input.message),
+        title: titleFrom(turn.message),
         messages: exchange,
       });
     }

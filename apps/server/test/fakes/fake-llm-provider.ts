@@ -7,8 +7,16 @@ import type {
   ToolUseBlock,
 } from "../../src/modules/chat/llm/types";
 
-/** One scripted step: a response, an error to throw, or a function of the request. */
-export type ScriptedStep = LLMResponse | Error | ((request: LLMRequest) => LLMResponse);
+/** In stream mode: yields `text` as a delta, then throws `error`. In generate mode: throws. */
+export class MidStreamFailure {
+  constructor(
+    readonly text: string,
+    readonly error: Error,
+  ) {}
+}
+
+/** One scripted step: a response, an error to throw, a mid-stream failure, or a function of the request. */
+export type ScriptedStep = LLMResponse | Error | MidStreamFailure | ((request: LLMRequest) => LLMResponse);
 
 /**
  * Deterministic LLMProvider for tests: returns the scripted steps in order, one per
@@ -28,17 +36,28 @@ export class FakeLLMProvider implements LLMProvider {
     this.steps.push(...steps);
   }
 
-  async generate(request: LLMRequest, _options?: GenerateOptions): Promise<LLMResponse> {
+  private next(request: LLMRequest): Exclude<ScriptedStep, Error> {
     this.requests.push(structuredClone(request));
     const step = this.steps.shift();
     if (!step) throw new Error(`FakeLLMProvider: no scripted response for call #${this.requests.length}`);
     if (step instanceof Error) throw step;
+    return step;
+  }
+
+  async generate(request: LLMRequest, _options?: GenerateOptions): Promise<LLMResponse> {
+    const step = this.next(request);
+    if (step instanceof MidStreamFailure) throw step.error;
     return typeof step === "function" ? step(request) : step;
   }
 
   /** Streams the text of the scripted response in two chunks, then the response. */
-  async *stream(request: LLMRequest, options?: GenerateOptions): AsyncIterable<StreamEvent> {
-    const response = await this.generate(request, options);
+  async *stream(request: LLMRequest, _options?: GenerateOptions): AsyncIterable<StreamEvent> {
+    const step = this.next(request);
+    if (step instanceof MidStreamFailure) {
+      yield { type: "delta", text: step.text };
+      throw step.error;
+    }
+    const response = typeof step === "function" ? step(request) : step;
     const text = response.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
     if (text) {
       const middle = Math.ceil(text.length / 2);
